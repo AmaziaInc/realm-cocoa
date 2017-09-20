@@ -23,8 +23,6 @@ import Realm.Dynamic
 import RealmSwift
 import XCTest
 
-#if swift(>=3.0)
-
 func inMemoryRealm(_ inMememoryIdentifier: String) -> Realm {
     return try! Realm(configuration: Realm.Configuration(inMemoryIdentifier: inMememoryIdentifier))
 }
@@ -121,14 +119,20 @@ class TestCase: XCTestCase {
         RLMAssertThrowsWithName(self, { _ = block() }, named, message, fileName, lineNumber)
     }
 
-    func assertThrows<T>(_ block: @autoclosure @escaping () -> T, reason regexString: String,
+    func assertThrows<T>(_ block: @autoclosure () -> T, reason: String,
+                         _ message: String? = nil, fileName: String = #file, lineNumber: UInt = #line) {
+        exceptionThrown = true
+        RLMAssertThrowsWithReason(self, { _ = block() }, reason, message, fileName, lineNumber)
+    }
+
+    func assertThrows<T>(_ block: @autoclosure () -> T, reasonMatching regexString: String,
                          _ message: String? = nil, fileName: String = #file, lineNumber: UInt = #line) {
         exceptionThrown = true
         RLMAssertThrowsWithReasonMatching(self, { _ = block() }, regexString, message, fileName, lineNumber)
     }
 
     func assertSucceeds(message: String? = nil, fileName: StaticString = #file,
-                        lineNumber: UInt = #line, block: () throws -> ()) {
+                        lineNumber: UInt = #line, block: () throws -> Void) {
         do {
             try block()
         } catch {
@@ -153,8 +157,8 @@ class TestCase: XCTestCase {
     }
 
     func assertFails<T>(_ expectedError: Error, _ message: String? = nil,
-                     fileName: StaticString = #file, lineNumber: UInt = #line,
-                     block: () throws -> T) {
+                        fileName: StaticString = #file, lineNumber: UInt = #line,
+                        block: () throws -> T) {
         do {
             _ = try block()
             XCTFail("Expected to catch <\(expectedError)>, but no error was thrown.",
@@ -172,7 +176,13 @@ class TestCase: XCTestCase {
         XCTAssert(block() == nil, message ?? "", file: fileName, line: lineNumber)
     }
 
+    func assertMatches(_ block: @autoclosure () -> String, _ regexString: String, _ message: String? = nil,
+                       fileName: String = #file, lineNumber: UInt = #line) {
+        RLMAssertMatches(self, block, regexString, message, fileName, lineNumber)
+    }
+
     private func realmFilePrefix() -> String {
+        let name: String? = self.name
         return name!.trimmingCharacters(in: CharacterSet(charactersIn: "-[]"))
     }
 
@@ -190,167 +200,13 @@ class TestCase: XCTestCase {
     }
 }
 
-#else
-
-func inMemoryRealm(inMememoryIdentifier: String) -> Realm {
-    return try! Realm(configuration: Realm.Configuration(inMemoryIdentifier: inMememoryIdentifier))
+#if !swift(>=3.2)
+func XCTAssertEqual<F: FloatingPoint>(_ expression1: F, _ expression2: F, accuracy: F,
+                                      file: StaticString = #file, line: UInt = #line) {
+    XCTAssertEqualWithAccuracy(expression1, expression2, accuracy: accuracy, file: file, line: line)
 }
-
-class TestCase: XCTestCase {
-    var exceptionThrown = false
-    var testDir: String! = nil
-
-    func realmWithTestPath(configuration: Realm.Configuration = Realm.Configuration()) -> Realm {
-        var configuration = configuration
-        configuration.fileURL = testRealmURL()
-        return try! Realm(configuration: configuration)
-    }
-
-    override class func setUp() {
-        super.setUp()
-#if DEBUG || arch(i386) || arch(x86_64)
-        // Disable actually syncing anything to the disk to greatly speed up the
-        // tests, but only when not running on device because it can't be
-        // re-enabled and we need it enabled for performance tests
-        RLMDisableSyncToDisk()
-#endif
-        do {
-            // Clean up any potentially lingering Realm files from previous runs
-            try NSFileManager.defaultManager().removeItemAtPath(RLMRealmPathForFile(""))
-        } catch {
-            // The directory might not actually already exist, so not an error
-        }
-    }
-
-    override class func tearDown() {
-        RLMRealm.resetRealmState()
-        super.tearDown()
-    }
-
-    override func invokeTest() {
-        testDir = RLMRealmPathForFile(realmFilePrefix())
-
-        do {
-            try NSFileManager.defaultManager().removeItemAtPath(testDir)
-        } catch {
-            // The directory shouldn't actually already exist, so not an error
-        }
-        try! NSFileManager.defaultManager().createDirectoryAtPath(testDir, withIntermediateDirectories: true,
-            attributes: nil)
-
-        let config = Realm.Configuration(fileURL: defaultRealmURL())
-        Realm.Configuration.defaultConfiguration = config
-
-        exceptionThrown = false
-        autoreleasepool { super.invokeTest() }
-
-        if !exceptionThrown {
-            XCTAssertFalse(RLMHasCachedRealmForPath(defaultRealmURL().path!))
-            XCTAssertFalse(RLMHasCachedRealmForPath(testRealmURL().path!))
-        }
-
-        resetRealmState()
-
-        do {
-            try NSFileManager.defaultManager().removeItemAtPath(testDir)
-        } catch {
-            XCTFail("Unable to delete realm files")
-        }
-
-        // Verify that there are no remaining realm files after the test
-        let parentDir = (testDir as NSString).stringByDeletingLastPathComponent
-        for url in NSFileManager().enumeratorAtPath(parentDir)! {
-            XCTAssertNotEqual(url.pathExtension, "realm", "Lingering realm file at \(parentDir)/\(url)")
-            assert(url.pathExtension != "realm")
-        }
-    }
-
-    func resetRealmState() {
-        RLMRealm.resetRealmState()
-    }
-
-    func dispatchSyncNewThread(block: dispatch_block_t) {
-        let queue = dispatch_queue_create("background", nil)
-        dispatch_async(queue) {
-            autoreleasepool {
-                block()
-            }
-        }
-        dispatch_sync(queue) {}
-    }
-
-    func assertThrows<T>(@autoclosure(escaping) block: () -> T, named: String? = RLMExceptionName,
-                         _ message: String? = nil, fileName: String = #file, lineNumber: UInt = #line) {
-        exceptionThrown = true
-        RLMAssertThrowsWithName(self, { _ = block() } as dispatch_block_t, named, message, fileName, lineNumber)
-    }
-
-    func assertThrows<T>(@autoclosure(escaping) block: () -> T, reason regexString: String,
-                         _ message: String? = nil, fileName: String = #file, lineNumber: UInt = #line) {
-        exceptionThrown = true
-        RLMAssertThrowsWithReasonMatching(self, { _ = block() } as dispatch_block_t, regexString, message, fileName, lineNumber)
-    }
-
-    func assertSucceeds(message: String? = nil, fileName: StaticString = #file,
-                        lineNumber: UInt = #line, @noescape block: () throws -> ()) {
-        do {
-            try block()
-        } catch {
-            XCTFail("Expected no error, but instead caught <\(error)>.",
-                file: fileName, line: lineNumber)
-        }
-    }
-
-    // Infer `Realm.Error` when using prefix dot syntax
-    func assertFails<T>(expectedError: Error, _ message: String? = nil,
-                     fileName: StaticString = #file, lineNumber: UInt = #line,
-                     @noescape block: () throws -> T) {
-        __assertFails(expectedError, message, fileName: fileName, lineNumber: lineNumber, block: block)
-    }
-
-    // Support any `ErrorType` that's `Equatable`
-    func assertFails<E: ErrorType, T where E: Equatable>(expectedError: E, _ message: String? = nil,
-                     fileName: StaticString = #file, lineNumber: UInt = #line,
-                     @noescape block: () throws -> T) {
-        __assertFails(expectedError, message, fileName: fileName, lineNumber: lineNumber, block: block)
-    }
-
-    // Separate naming required so `assertFails` will call this function rather than recurse on itself
-    private func __assertFails<E: ErrorType, T where E: Equatable>(expectedError: E, _ message: String? = nil,
-                        fileName: StaticString = #file, lineNumber: UInt = #line,
-                        @noescape block: () throws -> T) {
-        do {
-            try block()
-            XCTFail("Expected to catch <\(expectedError)>, but no error was thrown.",
-                file: fileName, line: lineNumber)
-        } catch let error {
-            guard error == expectedError else {
-                return XCTFail("Expected to catch <\(expectedError)>, but instead caught <\(error)>.",
-                        file: fileName, line: lineNumber)
-            }
-        }
-    }
-
-    private func realmFilePrefix() -> String {
-        return name!.stringByTrimmingCharactersInSet(NSCharacterSet(charactersInString: "-[]"))
-    }
-
-    internal func testRealmURL() -> NSURL {
-        return realmURLForFile("test.realm")
-    }
-
-    internal func defaultRealmURL() -> NSURL {
-        return realmURLForFile("default.realm")
-    }
-
-    private func realmURLForFile(fileName: String) -> NSURL {
-        let directory = NSURL(fileURLWithPath: testDir, isDirectory: true)
-        #if swift(>=2.3)
-            return directory.URLByAppendingPathComponent(fileName, isDirectory: false)!
-        #else
-            return directory.URLByAppendingPathComponent(fileName, isDirectory: false)
-        #endif
-    }
+func XCTAssertNotEqual<F: FloatingPoint>(_ expression1: F, _ expression2: F, accuracy: F,
+                                         file: StaticString = #file, line: UInt = #line) {
+    XCTAssertNotEqualWithAccuracy(expression1, expression2, accuracy, file: file, line: line)
 }
-
 #endif

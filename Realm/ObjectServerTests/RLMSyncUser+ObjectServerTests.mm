@@ -18,35 +18,59 @@
 
 #import "RLMSyncUser+ObjectServerTests.h"
 
-#import "RLMSyncSession_Private.h"
-#import "RLMSyncSessionHandle.hpp"
+#import "RLMSyncSession_Private.hpp"
+#import "RLMRealmUtil.hpp"
 
-@interface RLMSyncSession ()
-- (RLMSyncSessionHandle *)sessionHandle;
-@end
+#import "sync/sync_session.hpp"
+
+using namespace realm;
 
 @implementation RLMSyncUser (ObjectServerTests)
 
-- (void)waitForUploadToFinish:(NSURL *)url {
+- (BOOL)waitForUploadToFinish:(NSURL *)url {
+    const NSTimeInterval timeout = 20;
     dispatch_semaphore_t sema = dispatch_semaphore_create(0);
     RLMSyncSession *session = [self sessionForURL:url];
     NSAssert(session, @"Cannot call with invalid URL");
-    [[session sessionHandle] waitForUploadCompletionOnQueue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0)
-                                                   callback:^{
-                                                       dispatch_semaphore_signal(sema);
-                                                   }];
-    dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
+    BOOL couldWait = [session waitForUploadCompletionOnQueue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0)
+                                                    callback:^(NSError *){
+                                                        dispatch_semaphore_signal(sema);
+                                                    }];
+    if (!couldWait) {
+        return NO;
+    }
+    return dispatch_semaphore_wait(sema, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout * NSEC_PER_SEC))) == 0;
 }
 
-- (void)waitForDownloadToFinish:(NSURL *)url {
+- (BOOL)waitForDownloadToFinish:(NSURL *)url {
+    const NSTimeInterval timeout = 20;
     dispatch_semaphore_t sema = dispatch_semaphore_create(0);
     RLMSyncSession *session = [self sessionForURL:url];
     NSAssert(session, @"Cannot call with invalid URL");
-    [[session sessionHandle] waitForDownloadCompletionOnQueue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0)
-                                                     callback:^{
-                                                         dispatch_semaphore_signal(sema);
-                                                     }];
-    dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
+    BOOL couldWait = [session waitForDownloadCompletionOnQueue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0)
+                                                      callback:^(NSError *){
+                                                          dispatch_semaphore_signal(sema);
+                                                      }];
+    if (!couldWait) {
+        return NO;
+    }
+    return dispatch_semaphore_wait(sema, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout * NSEC_PER_SEC))) == 0;
+}
+
+- (void)simulateClientResetErrorForSession:(NSURL *)url {
+    RLMSyncSession *session = [self sessionForURL:url];
+    NSAssert(session, @"Cannot call with invalid URL");
+
+    std::shared_ptr<SyncSession> raw_session = session->_session.lock();
+    std::error_code code = std::error_code{
+        static_cast<int>(realm::sync::ProtocolError::bad_client_file_ident),
+        realm::sync::protocol_error_category()
+    };
+    SyncSession::OnlyForTesting::handle_error(*raw_session, {code, "Not a real error message", false});
 }
 
 @end
+
+bool RLMHasCachedRealmForPath(NSString *path) {
+    return RLMGetAnyCachedRealmForPath(path.UTF8String);
+}

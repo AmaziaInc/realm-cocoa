@@ -1,13 +1,14 @@
 #!/bin/bash
 
+set -o pipefail
+set -e
+
 usage() {
 cat <<EOF
 Usage: sh $0 command [argument]
 
 command:
   test-all:                        tests all projects in this repo.
-  test-xcode7:                     tests all Xcode 7 projects in this repo.
-  test-xcode8:                     tests all Xcode 8 projects in this repo.
 
   test-ios-objc-static:            tests iOS Objective-C static example.
   test-ios-objc-dynamic:           tests iOS Objective-C dynamic example.
@@ -39,7 +40,7 @@ COMMAND="$1"
 download_zip_if_needed() {
     LANG="$1"
     DIRECTORY=realm-$LANG-latest
-    if [ ! -f $DIRECTORY.zip ]; then
+    if [ ! -d $DIRECTORY ]; then
         curl -o $DIRECTORY.zip -L https://static.realm.io/downloads/$LANG/latest
         unzip $DIRECTORY.zip
         rm $DIRECTORY.zip
@@ -52,6 +53,9 @@ xctest() {
     LANG="$2"
     NAME="$3"
     DIRECTORY="$PLATFORM/$LANG/$NAME"
+    if [[ ! -d "$DIRECTORY" ]]; then
+        DIRECTORY="${DIRECTORY/swift/swift-$REALM_SWIFT_VERSION}"
+    fi
     PROJECT="$DIRECTORY/$NAME.xcodeproj"
     WORKSPACE="$DIRECTORY/$NAME.xcworkspace"
     if [[ $PLATFORM == ios ]]; then
@@ -98,23 +102,12 @@ xctest() {
 }
 
 source "$(dirname "$0")/../../scripts/swift-version.sh"
+set_xcode_and_swift_versions # exports REALM_SWIFT_VERSION, REALM_XCODE_VERSION, and DEVELOPER_DIR variables if not already set
 
 case "$COMMAND" in
     "test-all")
-        ./build.sh test-xcode7 || exit 1
-        ./build.sh test-xcode8 || exit 1
-        ;;
-
-    "test-xcode7")
-        for target in ios-swift-dynamic ios-swift-cocoapods osx-swift-dynamic ios-swift-carthage osx-swift-carthage watchos-objc-dynamic test-watchos-objc-cocoapods test-watchos-objc-carthage watchos-swift-dynamic test-watchos-swift-cocoapods test-watchos-swift-carthage; do
-            REALM_SWIFT_VERSION=2.2 ./build.sh test-$target || exit 1
-        done
-        ;;
-
-    "test-xcode8")
-        for target in ios-swift-dynamic ios-swift-cocoapods osx-swift-dynamic ios-swift-carthage osx-swift-carthage watchos-objc-dynamic test-watchos-objc-cocoapods test-watchos-objc-carthage watchos-swift-dynamic test-watchos-swift-cocoapods test-watchos-swift-carthage; do
-            REALM_SWIFT_VERSION=2.3 ./build.sh test-$target || exit 1
-            REALM_SWIFT_VERSION=3.0 ./build.sh test-$target || exit 1
+        for target in ios-swift-dynamic ios-swift-cocoapods osx-swift-dynamic ios-swift-carthage osx-swift-carthage; do
+            ./build.sh test-$target || exit 1
         done
         ;;
 
@@ -139,15 +132,15 @@ case "$COMMAND" in
         ;;
 
     "test-ios-swift-dynamic")
-        xctest ios swift-$REALM_SWIFT_VERSION DynamicExample
+        xctest ios swift DynamicExample
         ;;
 
     "test-ios-swift-cocoapods")
-        xctest ios swift-$REALM_SWIFT_VERSION CocoaPodsExample
+        xctest ios swift CocoaPodsExample
         ;;
 
     "test-ios-swift-carthage")
-        xctest ios swift-$REALM_SWIFT_VERSION CarthageExample
+        xctest ios swift CarthageExample
         ;;
 
     "test-osx-objc-dynamic")
@@ -163,15 +156,15 @@ case "$COMMAND" in
         ;;
 
     "test-osx-swift-dynamic")
-        xctest osx swift-$REALM_SWIFT_VERSION DynamicExample
+        xctest osx swift DynamicExample
         ;;
 
     "test-osx-swift-cocoapods")
-        xctest osx swift-$REALM_SWIFT_VERSION CocoaPodsExample
+        xctest osx swift CocoaPodsExample
         ;;
 
     "test-osx-swift-carthage")
-        xctest osx swift-$REALM_SWIFT_VERSION CarthageExample
+        xctest osx swift CarthageExample
         ;;
 
     "test-watchos-objc-dynamic")
@@ -187,15 +180,15 @@ case "$COMMAND" in
         ;;
 
     "test-watchos-swift-dynamic")
-        xctest watchos swift-$REALM_SWIFT_VERSION DynamicExample
+        xctest watchos swift DynamicExample
         ;;
 
     "test-watchos-swift-cocoapods")
-        xctest watchos swift-$REALM_SWIFT_VERSION CocoaPodsExample
+        xctest watchos swift CocoaPodsExample
         ;;
 
     "test-watchos-swift-carthage")
-        xctest watchos swift-$REALM_SWIFT_VERSION CarthageExample
+        xctest watchos swift CarthageExample
         ;;
 
     *)

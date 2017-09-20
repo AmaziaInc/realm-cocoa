@@ -271,7 +271,7 @@
 
     XCTAssertThrows([intArray.intArray objectsWhere:@"intCol == 1"], @"Should throw on unmanaged RLMArray");
     XCTAssertThrows(([intArray.intArray objectsWithPredicate:[NSPredicate predicateWithFormat:@"intCol == %i", 1]]), @"Should throw on unmanaged RLMArray");
-    XCTAssertThrows([intArray.intArray sortedResultsUsingProperty:@"intCol" ascending:YES], @"Should throw on unmanaged RLMArray");
+    XCTAssertThrows([intArray.intArray sortedResultsUsingKeyPath:@"intCol" ascending:YES], @"Should throw on unmanaged RLMArray");
 
     XCTAssertEqual(0U, [intArray.intArray indexOfObjectWhere:@"intCol == 1"]);
     XCTAssertEqual(0U, ([intArray.intArray indexOfObjectWithPredicate:[NSPredicate predicateWithFormat:@"intCol == %i", 1]]));
@@ -637,6 +637,13 @@
     }
     [realm commitWriteTransaction];
 
+    RLM_GENERIC_ARRAY(EmployeeObject) *employeeObjects = [company valueForKey:@"employees"];
+    NSMutableArray *kvcAgeProperties = [NSMutableArray array];
+    for (EmployeeObject *employee in employeeObjects) {
+        [kvcAgeProperties addObject:@(employee.age)];
+    }
+    XCTAssertEqualObjects(kvcAgeProperties, ages);
+
     XCTAssertEqualObjects([company.employees valueForKey:@"age"], ages);
     XCTAssertTrue([[[company.employees valueForKey:@"self"] firstObject] isEqualToObject:company.employees.firstObject]);
     XCTAssertTrue([[[company.employees valueForKey:@"self"] lastObject] isEqualToObject:company.employees.lastObject]);
@@ -646,11 +653,12 @@
     XCTAssertEqual([[company.employees valueForKeyPath:@"@max.age"] integerValue], 29);
     XCTAssertEqualWithAccuracy([[company.employees valueForKeyPath:@"@avg.age"] doubleValue], 14.5, 0.1f);
 
-    XCTAssertEqualObjects([company.employees valueForKeyPath:@"@unionOfObjects.age"], (@[@0, @1, @2, @3, @4, @5, @6, @7, @8, @9, @10, @11, @12, @13, @14, @15, @16, @17, @18, @19, @20, @21, @22, @23, @24, @25, @26, @27, @28, @29]));
+    XCTAssertEqualObjects([company.employees valueForKeyPath:@"@unionOfObjects.age"],
+                          (@[@0, @1, @2, @3, @4, @5, @6, @7, @8, @9, @10, @11, @12, @13, @14, @15, @16, @17, @18, @19, @20, @21, @22, @23, @24, @25, @26, @27, @28, @29]));
     XCTAssertEqualObjects([company.employees valueForKeyPath:@"@distinctUnionOfObjects.name"], (@[@"Joe"]));
 
     RLMAssertThrowsWithReasonMatching([company.employees valueForKeyPath:@"@sum.dogs.@sum.age"], @"Nested key paths.*not supported");
-    
+
     // unmanaged object
     company = [[CompanyObject alloc] init];
     ages = [NSMutableArray array];
@@ -669,7 +677,8 @@
     XCTAssertEqual([[company.employees valueForKeyPath:@"@max.age"] integerValue], 29);
     XCTAssertEqualWithAccuracy([[company.employees valueForKeyPath:@"@avg.age"] doubleValue], 14.5, 0.1f);
 
-    XCTAssertEqualObjects([company.employees valueForKeyPath:@"@unionOfObjects.age"], (@[@0, @1, @2, @3, @4, @5, @6, @7, @8, @9, @10, @11, @12, @13, @14, @15, @16, @17, @18, @19, @20, @21, @22, @23, @24, @25, @26, @27, @28, @29]));
+    XCTAssertEqualObjects([company.employees valueForKeyPath:@"@unionOfObjects.age"],
+                          (@[@0, @1, @2, @3, @4, @5, @6, @7, @8, @9, @10, @11, @12, @13, @14, @15, @16, @17, @18, @19, @20, @21, @22, @23, @24, @25, @26, @27, @28, @29]));
     XCTAssertEqualObjects([company.employees valueForKeyPath:@"@distinctUnionOfObjects.name"], (@[@"Joe"]));
 
     RLMAssertThrowsWithReasonMatching([company.employees valueForKeyPath:@"@sum.dogs.@sum.age"], @"Nested key paths.*not supported");
@@ -717,6 +726,120 @@
     [company.employees setValue:@20 forKey:@"age"];
 
     XCTAssertEqualObjects([company.employees valueForKey:@"age"], ages);
+}
+
+- (void)testObjectAggregate {
+    RLMRealm *realm = [RLMRealm defaultRealm];
+
+    AggregateArrayObject *obj = [AggregateArrayObject new];
+    XCTAssertEqual(0, [obj.array sumOfProperty:@"intCol"].intValue);
+    XCTAssertNil([obj.array averageOfProperty:@"intCol"]);
+    XCTAssertNil([obj.array minOfProperty:@"intCol"]);
+    XCTAssertNil([obj.array maxOfProperty:@"intCol"]);
+
+    NSDate *dateMinInput = [NSDate date];
+    NSDate *dateMaxInput = [dateMinInput dateByAddingTimeInterval:1000];
+
+    [realm transactionWithBlock:^{
+        [AggregateObject createInRealm:realm withValue:@[@0, @1.2f, @0.0, @YES, dateMinInput]];
+        [AggregateObject createInRealm:realm withValue:@[@1, @0.0f, @2.5, @NO, dateMaxInput]];
+        [AggregateObject createInRealm:realm withValue:@[@0, @1.2f, @0.0, @YES, dateMinInput]];
+        [AggregateObject createInRealm:realm withValue:@[@1, @0.0f, @2.5, @NO, dateMaxInput]];
+        [AggregateObject createInRealm:realm withValue:@[@0, @1.2f, @0.0, @YES, dateMinInput]];
+        [AggregateObject createInRealm:realm withValue:@[@1, @0.0f, @2.5, @NO, dateMaxInput]];
+        [AggregateObject createInRealm:realm withValue:@[@0, @1.2f, @0.0, @YES, dateMinInput]];
+        [AggregateObject createInRealm:realm withValue:@[@1, @0.0f, @2.5, @NO, dateMaxInput]];
+        [AggregateObject createInRealm:realm withValue:@[@0, @1.2f, @0.0, @YES, dateMinInput]];
+        [AggregateObject createInRealm:realm withValue:@[@0, @1.2f, @0.0, @YES, dateMinInput]];
+
+        [obj.array addObjects:[AggregateObject allObjectsInRealm:realm]];
+    }];
+
+    void (^test)(void) = ^{
+        RLMArray *array = obj.array;
+
+        // SUM
+        XCTAssertEqual([array sumOfProperty:@"intCol"].integerValue, 4);
+        XCTAssertEqualWithAccuracy([array sumOfProperty:@"floatCol"].floatValue, 7.2f, 0.1f);
+        XCTAssertEqualWithAccuracy([array sumOfProperty:@"doubleCol"].doubleValue, 10.0, 0.1f);
+        RLMAssertThrowsWithReasonMatching([array sumOfProperty:@"foo"], @"foo.*AggregateObject");
+        RLMAssertThrowsWithReasonMatching([array sumOfProperty:@"boolCol"], @"sum.*bool");
+        RLMAssertThrowsWithReasonMatching([array sumOfProperty:@"dateCol"], @"sum.*date");
+
+        // Average
+        XCTAssertEqualWithAccuracy([array averageOfProperty:@"intCol"].doubleValue, 0.4, 0.1f);
+        XCTAssertEqualWithAccuracy([array averageOfProperty:@"floatCol"].doubleValue, 0.72, 0.1f);
+        XCTAssertEqualWithAccuracy([array averageOfProperty:@"doubleCol"].doubleValue, 1.0, 0.1f);
+        RLMAssertThrowsWithReasonMatching([array averageOfProperty:@"foo"], @"foo.*AggregateObject");
+        RLMAssertThrowsWithReasonMatching([array averageOfProperty:@"boolCol"], @"average.*bool");
+        RLMAssertThrowsWithReasonMatching([array averageOfProperty:@"dateCol"], @"average.*date");
+
+        // MIN
+        XCTAssertEqual(0, [[array minOfProperty:@"intCol"] intValue]);
+        XCTAssertEqual(0.0f, [[array minOfProperty:@"floatCol"] floatValue]);
+        XCTAssertEqual(0.0, [[array minOfProperty:@"doubleCol"] doubleValue]);
+        XCTAssertEqualObjects(dateMinInput, [array minOfProperty:@"dateCol"]);
+        RLMAssertThrowsWithReasonMatching([array minOfProperty:@"foo"], @"foo.*AggregateObject");
+        RLMAssertThrowsWithReasonMatching([array minOfProperty:@"boolCol"], @"min.*bool");
+
+        // MAX
+        XCTAssertEqual(1, [[array maxOfProperty:@"intCol"] intValue]);
+        XCTAssertEqual(1.2f, [[array maxOfProperty:@"floatCol"] floatValue]);
+        XCTAssertEqual(2.5, [[array maxOfProperty:@"doubleCol"] doubleValue]);
+        XCTAssertEqualObjects(dateMaxInput, [array maxOfProperty:@"dateCol"]);
+        RLMAssertThrowsWithReasonMatching([array maxOfProperty:@"foo"], @"foo.*AggregateObject");
+        RLMAssertThrowsWithReasonMatching([array maxOfProperty:@"boolCol"], @"max.*bool");
+    };
+
+    test();
+    [realm transactionWithBlock:^{ [realm addObject:obj]; }];
+    test();
+}
+
+- (void)testValueForCollectionOperationKeyPath
+{
+    RLMRealm *realm = [RLMRealm defaultRealm];
+
+    [realm beginWriteTransaction];
+    EmployeeObject *e1 = [PrimaryEmployeeObject createInRealm:realm withValue:@{@"name": @"A", @"age": @20, @"hired": @YES}];
+    EmployeeObject *e2 = [PrimaryEmployeeObject createInRealm:realm withValue:@{@"name": @"B", @"age": @30, @"hired": @NO}];
+    EmployeeObject *e3 = [PrimaryEmployeeObject createInRealm:realm withValue:@{@"name": @"C", @"age": @40, @"hired": @YES}];
+    EmployeeObject *e4 = [PrimaryEmployeeObject createInRealm:realm withValue:@{@"name": @"D", @"age": @50, @"hired": @YES}];
+    PrimaryCompanyObject *c1 = [PrimaryCompanyObject createInRealm:realm withValue:@{@"name": @"ABC AG", @"employees": @[e1, e2, e3, e2]}];
+    PrimaryCompanyObject *c2 = [PrimaryCompanyObject createInRealm:realm withValue:@{@"name": @"ABC AG 2", @"employees": @[e1, e4]}];
+
+    ArrayOfPrimaryCompanies *companies = [ArrayOfPrimaryCompanies createInRealm:realm withValue:@[@[c1, c2]]];
+    [realm commitWriteTransaction];
+
+    // count operator
+    XCTAssertEqual([[c1.employees valueForKeyPath:@"@count"] integerValue], 4);
+
+    // numeric operators
+    XCTAssertEqual([[c1.employees valueForKeyPath:@"@min.age"] intValue], 20);
+    XCTAssertEqual([[c1.employees valueForKeyPath:@"@max.age"] intValue], 40);
+    XCTAssertEqual([[c1.employees valueForKeyPath:@"@sum.age"] integerValue], 120);
+    XCTAssertEqualWithAccuracy([[c1.employees valueForKeyPath:@"@avg.age"] doubleValue], 30, 0.1f);
+
+    // collection
+    XCTAssertEqualObjects([c1.employees valueForKeyPath:@"@unionOfObjects.name"],
+                          (@[@"A", @"B", @"C", @"B"]));
+    XCTAssertEqualObjects([[c1.employees valueForKeyPath:@"@distinctUnionOfObjects.name"] sortedArrayUsingSelector:@selector(compare:)],
+                          (@[@"A", @"B", @"C"]));
+    XCTAssertEqualObjects([companies.companies valueForKeyPath:@"@unionOfArrays.employees"],
+                          (@[e1, e2, e3, e2, e1, e4]));
+    NSComparator cmp = ^NSComparisonResult(id obj1, id obj2) { return [[obj1 name] compare:[obj2 name]]; };
+    XCTAssertEqualObjects([[companies.companies valueForKeyPath:@"@distinctUnionOfArrays.employees"] sortedArrayUsingComparator:cmp],
+                          (@[e1, e2, e3, e4]));
+
+    // invalid key paths
+    RLMAssertThrowsWithReasonMatching([c1.employees valueForKeyPath:@"@invalid.name"],
+                                      @"Unsupported KVC collection operator found in key path '@invalid.name'");
+    RLMAssertThrowsWithReasonMatching([c1.employees valueForKeyPath:@"@sum"],
+                                      @"Missing key path for KVC collection operator sum in key path '@sum'");
+    RLMAssertThrowsWithReasonMatching([c1.employees valueForKeyPath:@"@sum."],
+                                      @"Missing key path for KVC collection operator sum in key path '@sum.'");
+    RLMAssertThrowsWithReasonMatching([c1.employees valueForKeyPath:@"@sum.employees.@sum.age"],
+                                      @"Nested key paths.*not supported");
 }
 
 - (void)testCrossThreadAccess
@@ -780,8 +903,8 @@
     [realm commitWriteTransaction];
 
     bool (^checkOrder)(NSArray *, NSArray *, NSArray *) = ^bool(NSArray *properties, NSArray *ascending, NSArray *dogs) {
-        NSArray *sort = @[[RLMSortDescriptor sortDescriptorWithProperty:properties[0] ascending:[ascending[0] boolValue]],
-                          [RLMSortDescriptor sortDescriptorWithProperty:properties[1] ascending:[ascending[1] boolValue]]];
+        NSArray *sort = @[[RLMSortDescriptor sortDescriptorWithKeyPath:properties[0] ascending:[ascending[0] boolValue]],
+                          [RLMSortDescriptor sortDescriptorWithKeyPath:properties[1] ascending:[ascending[1] boolValue]]];
         RLMResults *actual = [array.dogs sortedResultsUsingDescriptors:sort];
 
         return [actual[0] isEqualToObject:dogs[0]]
@@ -886,16 +1009,85 @@
     XCTAssertTrue([description rangeOfString:@"912 objects skipped"].location != NSNotFound);
 }
 
-- (void)testAssignArrayProperty {
+- (void)testUnmanagedAssignment {
+    IntObject *io1 = [[IntObject alloc] init];
+    IntObject *io2 = [[IntObject alloc] init];
+    IntObject *io3 = [[IntObject alloc] init];
+
+    ArrayPropertyObject *array1 = [[ArrayPropertyObject alloc] init];
+    ArrayPropertyObject *array2 = [[ArrayPropertyObject alloc] init];
+
+    // Assigning NSArray shallow copies
+    array1.intArray = (id)@[io1, io2];
+    XCTAssertEqualObjects([array1.intArray valueForKey:@"self"], (@[io1, io2]));
+
+    [array1 setValue:@[io3, io1] forKey:@"intArray"];
+    XCTAssertEqualObjects([array1.intArray valueForKey:@"self"], (@[io3, io1]));
+
+    array1[@"intArray"] = @[io2, io3];
+    XCTAssertEqualObjects([array1.intArray valueForKey:@"self"], (@[io2, io3]));
+
+    // Assigning RLMArray shallow copies
+    array2.intArray = array1.intArray;
+    XCTAssertEqualObjects([array2.intArray valueForKey:@"self"], (@[io2, io3]));
+
+    [array1.intArray removeAllObjects];
+    XCTAssertEqualObjects([array2.intArray valueForKey:@"self"], (@[io2, io3]));
+
+    // Self-assignment is a no-op
+    array2.intArray = array2.intArray;
+    XCTAssertEqualObjects([array2.intArray valueForKey:@"self"], (@[io2, io3]));
+    array2[@"intArray"] = array2[@"intArray"];
+    XCTAssertEqualObjects([array2[@"intArray"] valueForKey:@"self"], (@[io2, io3]));
+}
+
+- (void)testManagedAssignment {
     RLMRealm *realm = self.realmWithTestPath;
     [realm beginWriteTransaction];
-    ArrayPropertyObject *array = [ArrayPropertyObject createInRealm:realm withValue:@[@"arrayObject", @[], @[]]];
-    NSSet *stringSet = [NSSet setWithArray:@[[[StringObject alloc] initWithValue:@[@"a"]]]];
-    [array setValue:stringSet forKey:@"array"];
-    XCTAssertEqualObjects([[array valueForKey:@"array"] valueForKey:@"stringCol"], [[stringSet allObjects] valueForKey:@"stringCol"]);
-    [array setValue:[stringSet allObjects] forKey:@"array"];
-    XCTAssertEqualObjects([[array valueForKey:@"array"] valueForKey:@"stringCol"], [[stringSet allObjects] valueForKey:@"stringCol"]);
-    [realm commitWriteTransaction];
+
+    IntObject *io1 = [IntObject createInRealm:realm withValue:@[@1]];
+    IntObject *io2 = [IntObject createInRealm:realm withValue:@[@2]];
+    IntObject *io3 = [IntObject createInRealm:realm withValue:@[@3]];
+
+    ArrayPropertyObject *array1 = [ArrayPropertyObject createInRealm:realm withValue:@[@""]];
+    ArrayPropertyObject *array2 = [ArrayPropertyObject createInRealm:realm withValue:@[@""]];
+
+    // Assigning NSArray shallow copies
+    array1.intArray = (id)@[io1, io2];
+    XCTAssertEqualObjects([array1.intArray valueForKey:@"intCol"], (@[@1, @2]));
+
+    [array1 setValue:@[io3, io1] forKey:@"intArray"];
+    XCTAssertEqualObjects([array1.intArray valueForKey:@"intCol"], (@[@3, @1]));
+
+    array1[@"intArray"] = @[io2, io3];
+    XCTAssertEqualObjects([array1.intArray valueForKey:@"intCol"], (@[@2, @3]));
+
+    // Assigning RLMArray shallow copies
+    array2.intArray = array1.intArray;
+    XCTAssertEqualObjects([array2.intArray valueForKey:@"intCol"], (@[@2, @3]));
+
+    [array1.intArray removeAllObjects];
+    XCTAssertEqualObjects([array2.intArray valueForKey:@"intCol"], (@[@2, @3]));
+
+    // Self-assignment is a no-op
+    array2.intArray = array2.intArray;
+    XCTAssertEqualObjects([array2.intArray valueForKey:@"intCol"], (@[@2, @3]));
+    array2[@"intArray"] = array2[@"intArray"];
+    XCTAssertEqualObjects([array2[@"intArray"] valueForKey:@"intCol"], (@[@2, @3]));
+
+    [realm cancelWriteTransaction];
+}
+
+- (void)testAssignIncorrectType {
+    RLMRealm *realm = self.realmWithTestPath;
+    [realm beginWriteTransaction];
+    ArrayPropertyObject *array = [ArrayPropertyObject createInRealm:realm
+                                                          withValue:@[@"", @[@[@"a"]], @[@[@0]]]];
+    RLMAssertThrowsWithReason(array.intArray = (id)array.array,
+                              @"Object of type (StringObject) does not match List type");
+    RLMAssertThrowsWithReason(array[@"intArray"] = array[@"array"],
+                              @"Invalid property value");
+    [realm cancelWriteTransaction];
 }
 
 - (void)testNotificationSentInitially {
@@ -1064,8 +1256,8 @@
         RLMAssertThrowsWithReasonMatching([array indexOfObjectWithPredicate:[NSPredicate predicateWithFormat:@"intCol = 0"]], @"thread");
         RLMAssertThrowsWithReasonMatching([array objectsWhere:@"intCol = 0"], @"thread");
         RLMAssertThrowsWithReasonMatching([array objectsWithPredicate:[NSPredicate predicateWithFormat:@"intCol = 0"]], @"thread");
-        RLMAssertThrowsWithReasonMatching([array sortedResultsUsingProperty:@"intCol" ascending:YES], @"thread");
-        RLMAssertThrowsWithReasonMatching([array sortedResultsUsingDescriptors:@[[RLMSortDescriptor sortDescriptorWithProperty:@"intCol" ascending:YES]]], @"thread");
+        RLMAssertThrowsWithReasonMatching([array sortedResultsUsingKeyPath:@"intCol" ascending:YES], @"thread");
+        RLMAssertThrowsWithReasonMatching([array sortedResultsUsingDescriptors:@[[RLMSortDescriptor sortDescriptorWithKeyPath:@"intCol" ascending:YES]]], @"thread");
         RLMAssertThrowsWithReasonMatching(array[0], @"thread");
         RLMAssertThrowsWithReasonMatching(array[0] = io, @"thread");
         RLMAssertThrowsWithReasonMatching([array valueForKey:@"intCol"], @"thread");
@@ -1112,8 +1304,8 @@
     XCTAssertNoThrow([array indexOfObjectWithPredicate:[NSPredicate predicateWithFormat:@"intCol = 0"]]);
     XCTAssertNoThrow([array objectsWhere:@"intCol = 0"]);
     XCTAssertNoThrow([array objectsWithPredicate:[NSPredicate predicateWithFormat:@"intCol = 0"]]);
-    XCTAssertNoThrow([array sortedResultsUsingProperty:@"intCol" ascending:YES]);
-    XCTAssertNoThrow([array sortedResultsUsingDescriptors:@[[RLMSortDescriptor sortDescriptorWithProperty:@"intCol" ascending:YES]]]);
+    XCTAssertNoThrow([array sortedResultsUsingKeyPath:@"intCol" ascending:YES]);
+    XCTAssertNoThrow([array sortedResultsUsingDescriptors:@[[RLMSortDescriptor sortDescriptorWithKeyPath:@"intCol" ascending:YES]]]);
     XCTAssertNoThrow(array[0]);
     XCTAssertNoThrow(array[0] = io);
     XCTAssertNoThrow([array valueForKey:@"intCol"]);
@@ -1149,8 +1341,8 @@
     RLMAssertThrowsWithReasonMatching([array indexOfObjectWithPredicate:[NSPredicate predicateWithFormat:@"intCol = 0"]], @"invalidated");
     RLMAssertThrowsWithReasonMatching([array objectsWhere:@"intCol = 0"], @"invalidated");
     RLMAssertThrowsWithReasonMatching([array objectsWithPredicate:[NSPredicate predicateWithFormat:@"intCol = 0"]], @"invalidated");
-    RLMAssertThrowsWithReasonMatching([array sortedResultsUsingProperty:@"intCol" ascending:YES], @"invalidated");
-    RLMAssertThrowsWithReasonMatching([array sortedResultsUsingDescriptors:@[[RLMSortDescriptor sortDescriptorWithProperty:@"intCol" ascending:YES]]], @"invalidated");
+    RLMAssertThrowsWithReasonMatching([array sortedResultsUsingKeyPath:@"intCol" ascending:YES], @"invalidated");
+    RLMAssertThrowsWithReasonMatching([array sortedResultsUsingDescriptors:@[[RLMSortDescriptor sortDescriptorWithKeyPath:@"intCol" ascending:YES]]], @"invalidated");
     RLMAssertThrowsWithReasonMatching(array[0], @"invalidated");
     RLMAssertThrowsWithReasonMatching(array[0] = io, @"invalidated");
     RLMAssertThrowsWithReasonMatching([array valueForKey:@"intCol"], @"invalidated");
@@ -1182,8 +1374,8 @@
     XCTAssertNoThrow([array indexOfObjectWithPredicate:[NSPredicate predicateWithFormat:@"intCol = 0"]]);
     XCTAssertNoThrow([array objectsWhere:@"intCol = 0"]);
     XCTAssertNoThrow([array objectsWithPredicate:[NSPredicate predicateWithFormat:@"intCol = 0"]]);
-    XCTAssertNoThrow([array sortedResultsUsingProperty:@"intCol" ascending:YES]);
-    XCTAssertNoThrow([array sortedResultsUsingDescriptors:@[[RLMSortDescriptor sortDescriptorWithProperty:@"intCol" ascending:YES]]]);
+    XCTAssertNoThrow([array sortedResultsUsingKeyPath:@"intCol" ascending:YES]);
+    XCTAssertNoThrow([array sortedResultsUsingDescriptors:@[[RLMSortDescriptor sortDescriptorWithKeyPath:@"intCol" ascending:YES]]]);
     XCTAssertNoThrow(array[0]);
     XCTAssertNoThrow([array valueForKey:@"intCol"]);
     XCTAssertNoThrow({for (__unused id obj in array);});

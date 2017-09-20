@@ -130,17 +130,17 @@
 
     // class not derived from RLMObject
     XCTAssertThrows([realm objects:@"NonRealmPersonObject" where:@"age > 25"], @"invalid object type");
-    XCTAssertThrows([[realm objects:@"NonRealmPersonObject" where:@"age > 25"] sortedResultsUsingProperty:@"age" ascending:YES], @"invalid object type");
+    XCTAssertThrows([[realm objects:@"NonRealmPersonObject" where:@"age > 25"] sortedResultsUsingKeyPath:@"age" ascending:YES], @"invalid object type");
 
     // empty string for class name
     XCTAssertThrows([realm objects:@"" where:@"age > 25"], @"missing class name");
-    XCTAssertThrows([[realm objects:@"" where:@"age > 25"] sortedResultsUsingProperty:@"age" ascending:YES], @"missing class name");
+    XCTAssertThrows([[realm objects:@"" where:@"age > 25"] sortedResultsUsingKeyPath:@"age" ascending:YES], @"missing class name");
 
     // nil class name
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wnonnull"
     XCTAssertThrows([realm objects:nil where:@"age > 25"], @"nil class name");
-    XCTAssertThrows([[realm objects:nil where:@"age > 25"] sortedResultsUsingProperty:@"age" ascending:YES], @"nil class name");
+    XCTAssertThrows([[realm objects:nil where:@"age > 25"] sortedResultsUsingKeyPath:@"age" ascending:YES], @"nil class name");
 #pragma clang diagnostic pop
 }
 
@@ -202,6 +202,7 @@
     XCTAssertThrows([AllOptionalTypes objectsWhere:@"'' CONTAINS string"]);
     XCTAssertThrows([AllOptionalTypes objectsWhere:@"'' BEGINSWITH string"]);
     XCTAssertThrows([AllOptionalTypes objectsWhere:@"'' ENDSWITH string"]);
+    XCTAssertThrows([AllOptionalTypes objectsWhere:@"'' LIKE string"]);
     XCTAssertThrows(([AllOptionalTypes objectsWhere:@"%@ CONTAINS data", [NSData data]]));
 
     // data is missing stuff
@@ -304,12 +305,10 @@
 
 - (void)testStringUnsupportedOperations
 {
-    XCTAssertThrows([StringObject objectsWhere:@"stringCol LIKE 'abc'"]);
     XCTAssertThrows([StringObject objectsWhere:@"stringCol MATCHES 'abc'"]);
     XCTAssertThrows([StringObject objectsWhere:@"stringCol BETWEEN {'a', 'b'}"]);
     XCTAssertThrows([StringObject objectsWhere:@"stringCol < 'abc'"]);
 
-    XCTAssertThrows([AllTypesObject objectsWhere:@"objectCol.stringCol LIKE 'abc'"]);
     XCTAssertThrows([AllTypesObject objectsWhere:@"objectCol.stringCol MATCHES 'abc'"]);
     XCTAssertThrows([AllTypesObject objectsWhere:@"objectCol.stringCol BETWEEN {'a', 'b'}"]);
     XCTAssertThrows([AllTypesObject objectsWhere:@"objectCol.stringCol < 'abc'"]);
@@ -378,17 +377,12 @@
 
 @interface QueryTests : RLMTestCase
 - (Class)queryObjectClass;
-- (BOOL)isNull;
 @end
 
 @implementation QueryTests
 
 - (Class)queryObjectClass {
     return [QueryObject class];
-}
-
-- (BOOL)isNull {
-    return NO;
 }
 
 - (RLMResults *)evaluate:(RLMResults *)results {
@@ -413,11 +407,11 @@
     RLMAssertCount(PersonObject, 2U, @"age > 28");
 
     // query on realm with order
-    RLMResults *results = [[PersonObject objectsInRealm:realm where:@"age > 28"] sortedResultsUsingProperty:@"age" ascending:YES];
+    RLMResults *results = [[PersonObject objectsInRealm:realm where:@"age > 28"] sortedResultsUsingKeyPath:@"age" ascending:YES];
     XCTAssertEqualObjects([results[0] name], @"Tim", @"Tim should be first results");
 
     // query on sorted results
-    results = [[[PersonObject allObjectsInRealm:realm] sortedResultsUsingProperty:@"age" ascending:YES] objectsWhere:@"age > 28"];
+    results = [[[PersonObject allObjectsInRealm:realm] sortedResultsUsingKeyPath:@"age" ascending:YES] objectsWhere:@"age > 28"];
     XCTAssertEqualObjects([results[0] name], @"Tim", @"Tim should be first results");
 }
 
@@ -500,7 +494,7 @@
     RLMAssertCount(PersonObject, 1U, @"age == 27");
 
     // with order
-    RLMResults *results = [[PersonObject objectsWhere:@"age > 28"] sortedResultsUsingProperty:@"age" ascending:YES];
+    RLMResults *results = [[PersonObject objectsWhere:@"age > 28"] sortedResultsUsingKeyPath:@"age" ascending:YES];
     PersonObject *tim = results[0];
     XCTAssertEqualObjects(tim.name, @"Tim", @"Tim should be first results");
 }
@@ -519,34 +513,35 @@
     RLMResults *all = [PersonObject allObjects];
     XCTAssertEqual(all.count, 3U, @"Expecting 3 results");
 
-    RLMResults *some = [[PersonObject objectsWhere:@"age > 28"] sortedResultsUsingProperty:@"age" ascending:YES];
+    RLMResults *some = [[PersonObject objectsWhere:@"age > 28"] sortedResultsUsingKeyPath:@"age" ascending:YES];
 
     // query/order on array
     RLMAssertCount(all, 1U, @"age == 27");
     RLMAssertCount(all, 0U, @"age == 28");
-    some = [some sortedResultsUsingProperty:@"age" ascending:NO];
+    some = [some sortedResultsUsingKeyPath:@"age" ascending:NO];
     XCTAssertEqualObjects([some[0] name], @"Ari", @"Ari should be first results");
 }
 
 - (void)verifySort:(RLMRealm *)realm column:(NSString *)column ascending:(BOOL)ascending expected:(id)val {
-    RLMResults *results = [[AllTypesObject allObjectsInRealm:realm] sortedResultsUsingProperty:column ascending:ascending];
+    RLMResults *results = [[AllTypesObject allObjectsInRealm:realm] sortedResultsUsingKeyPath:column ascending:ascending];
     AllTypesObject *obj = results[0];
-    XCTAssertEqualObjects(obj[column], val, @"Array not sorted as expected - %@ != %@", obj[column], val);
+    XCTAssertEqualObjects(obj[column], val);
 
     RLMArray *ar = (RLMArray *)[[[ArrayOfAllTypesObject allObjectsInRealm:realm] firstObject] array];
-    results = [ar sortedResultsUsingProperty:column ascending:ascending];
+    results = [ar sortedResultsUsingKeyPath:column ascending:ascending];
     obj = results[0];
-    XCTAssertEqualObjects(obj[column], val, @"Array not sorted as expected - %@ != %@", obj[column], val);
+    XCTAssertEqualObjects(obj[column], val);
 }
 
 - (void)verifySortWithAccuracy:(RLMRealm *)realm column:(NSString *)column ascending:(BOOL)ascending getter:(double(^)(id))getter expected:(double)val accuracy:(double)accuracy {
     // test TableView query
-    RLMResults *results = [[AllTypesObject allObjectsInRealm:realm] sortedResultsUsingProperty:column ascending:ascending];
+    RLMResults<AllTypesObject *> *results = [[AllTypesObject allObjectsInRealm:realm]
+                                             sortedResultsUsingKeyPath:column ascending:ascending];
     XCTAssertEqualWithAccuracy(getter(results[0][column]), val, accuracy, @"Array not sorted as expected");
 
     // test LinkView query
     RLMArray *ar = (RLMArray *)[[[ArrayOfAllTypesObject allObjectsInRealm:realm] firstObject] array];
-    results = [ar sortedResultsUsingProperty:column ascending:ascending];
+    results = [ar sortedResultsUsingKeyPath:column ascending:ascending];
     XCTAssertEqualWithAccuracy(getter(results[0][column]), val, accuracy, @"Array not sorted as expected");
 }
 
@@ -600,12 +595,10 @@
     [self verifySort:realm column:@"stringCol" ascending:NO expected:@"cc"];
 
     // sort invalid name
-    RLMAssertThrowsWithReasonMatching([[AllTypesObject allObjects] sortedResultsUsingProperty:@"invalidCol" ascending:YES], @"'invalidCol'.* 'AllTypesObject'.* not found");
-    XCTAssertThrows([arrayOfAll.array sortedResultsUsingProperty:@"invalidCol" ascending:NO]);
-
-    // sort on key path
-    RLMAssertThrowsWithReasonMatching([[AllTypesObject allObjects] sortedResultsUsingProperty:@"key.path" ascending:YES], @"key paths is not supported");
-    XCTAssertThrows([arrayOfAll.array sortedResultsUsingProperty:@"key.path" ascending:NO]);
+    RLMAssertThrowsWithReason([[AllTypesObject allObjects] sortedResultsUsingKeyPath:@"invalidCol" ascending:YES],
+                              @"Cannot sort on key path 'invalidCol': property 'AllTypesObject.invalidCol' does not exist.");
+    RLMAssertThrowsWithReason([arrayOfAll.array sortedResultsUsingKeyPath:@"invalidCol" ascending:NO],
+                              @"Cannot sort on key path 'invalidCol': property 'AllTypesObject.invalidCol' does not exist.");
 }
 
 - (void)testSortByNoColumns {
@@ -634,8 +627,8 @@
     [realm commitWriteTransaction];
 
     bool (^checkOrder)(NSArray *, NSArray *, NSArray *) = ^bool(NSArray *properties, NSArray *ascending, NSArray *dogs) {
-        NSArray *sort = @[[RLMSortDescriptor sortDescriptorWithProperty:properties[0] ascending:[ascending[0] boolValue]],
-                          [RLMSortDescriptor sortDescriptorWithProperty:properties[1] ascending:[ascending[1] boolValue]]];
+        NSArray *sort = @[[RLMSortDescriptor sortDescriptorWithKeyPath:properties[0] ascending:[ascending[0] boolValue]],
+                          [RLMSortDescriptor sortDescriptorWithKeyPath:properties[1] ascending:[ascending[1] boolValue]]];
         RLMResults *actual = [DogObject.allObjects sortedResultsUsingDescriptors:sort];
         return [actual[0] isEqualToObject:dogs[0]]
             && [actual[1] isEqualToObject:dogs[1]]
@@ -652,6 +645,59 @@
     XCTAssertTrue(checkOrder(@[@"age", @"dogName"], @[@YES, @NO], @[b1, a1, b2, a2]));
     XCTAssertTrue(checkOrder(@[@"age", @"dogName"], @[@NO, @YES], @[a2, b2, a1, b1]));
     XCTAssertTrue(checkOrder(@[@"age", @"dogName"], @[@NO, @NO], @[b2, a2, b1, a1]));
+}
+
+- (void)testSortByKeyPath {
+    RLMRealm *realm = [self realm];
+
+    [realm beginWriteTransaction];
+    DogObject *lucy = [DogObject createInDefaultRealmWithValue:@[@"Lucy", @7]];
+    DogObject *freyja = [DogObject createInDefaultRealmWithValue:@[@"Freyja", @6]];
+    DogObject *ziggy = [DogObject createInDefaultRealmWithValue:@[@"Ziggy", @9]];
+
+    OwnerObject *mark = [OwnerObject createInDefaultRealmWithValue:@[@"Mark", freyja]];
+    OwnerObject *diane = [OwnerObject createInDefaultRealmWithValue:@[@"Diane", lucy]];
+    OwnerObject *hannah = [OwnerObject createInDefaultRealmWithValue:@[@"Hannah"]];
+    OwnerObject *don = [OwnerObject createInDefaultRealmWithValue:@[@"Don", ziggy]];
+    OwnerObject *diane_sr = [OwnerObject createInDefaultRealmWithValue:@[@"Diane Sr", ziggy]];
+
+    [realm commitWriteTransaction];
+
+    NSArray *(^asArray)(RLMResults *) = ^(RLMResults *results) {
+        return [[self evaluate:results] valueForKeyPath:@"self"];
+    };
+
+    RLMResults *r1 = [OwnerObject.allObjects sortedResultsUsingKeyPath:@"dog.age" ascending:YES];
+    XCTAssertEqualObjects(asArray(r1), (@[ mark, diane, don, diane_sr, hannah ]));
+
+    RLMResults *r2 = [OwnerObject.allObjects sortedResultsUsingKeyPath:@"dog.age" ascending:NO];
+    XCTAssertEqualObjects(asArray(r2), (@[ hannah, don, diane_sr, diane, mark ]));
+
+    RLMResults *r3 = [OwnerObject.allObjects sortedResultsUsingDescriptors:@[
+                         [RLMSortDescriptor sortDescriptorWithKeyPath:@"dog.age" ascending:YES],
+                         [RLMSortDescriptor sortDescriptorWithKeyPath:@"name" ascending:YES]
+    ]];
+    XCTAssertEqualObjects(asArray(r3), (@[ mark, diane, diane_sr, don, hannah ]));
+
+    RLMResults *r4 = [OwnerObject.allObjects sortedResultsUsingDescriptors:@[
+                         [RLMSortDescriptor sortDescriptorWithKeyPath:@"dog.age" ascending:NO],
+                         [RLMSortDescriptor sortDescriptorWithKeyPath:@"name" ascending:YES]
+    ]];
+    XCTAssertEqualObjects(asArray(r4), (@[ hannah, diane_sr, don, diane, mark ]));
+}
+
+- (void)testSortByUnspportedKeyPath {
+    // Array property
+    RLMAssertThrowsWithReason([DogArrayObject.allObjects sortedResultsUsingKeyPath:@"dogs.age" ascending:YES],
+                              @"Cannot sort on key path 'dogs.age': property 'DogArrayObject.dogs' is of unsupported type 'array'.");
+
+    // Backlinks property
+    RLMAssertThrowsWithReason([DogObject.allObjects sortedResultsUsingKeyPath:@"owners.name" ascending:YES],
+                              @"Cannot sort on key path 'owners.name': property 'DogObject.owners' is of unsupported type 'linking objects'.");
+
+    // Collection operator
+    RLMAssertThrowsWithReason([DogArrayObject.allObjects sortedResultsUsingKeyPath:@"dogs.@count" ascending:YES],
+                              @"Cannot sort on key path 'dogs.@count': KVC collection operators are not supported.");
 }
 
 - (void)testSortedLinkViewWithDeletion {
@@ -675,7 +721,7 @@
 
     [realm commitWriteTransaction];
 
-    RLMResults *results = [arrayOfAll.array sortedResultsUsingProperty:@"stringCol" ascending:NO];
+    RLMResults *results = [arrayOfAll.array sortedResultsUsingKeyPath:@"stringCol" ascending:NO];
     XCTAssertEqualObjects([results[0] stringCol], @"cc");
 
     // delete cc, add d results should update
@@ -706,8 +752,8 @@
     ArrayPropertyObject *array = [ArrayPropertyObject createInRealm:realm withValue:@[@"name", @[], [IntObject allObjects]]];
     [realm commitWriteTransaction];
 
-    RLMResults *asc = [IntObject.allObjects sortedResultsUsingProperty:@"intCol" ascending:YES];
-    RLMResults *desc = [IntObject.allObjects sortedResultsUsingProperty:@"intCol" ascending:NO];
+    RLMResults *asc = [IntObject.allObjects sortedResultsUsingKeyPath:@"intCol" ascending:YES];
+    RLMResults *desc = [IntObject.allObjects sortedResultsUsingKeyPath:@"intCol" ascending:NO];
 
     // sanity check; would work even without sort order being preserved
     XCTAssertEqual(2, [[[asc objectsWhere:@"intCol >= 2"] firstObject] intCol]);
@@ -717,8 +763,8 @@
     XCTAssertEqual(3, [[[[desc objectsWhere:@"intCol >= 2"] objectsWhere:@"intCol < 4"] firstObject] intCol]);
 
     // same thing but on an linkview
-    asc = [array.intArray sortedResultsUsingProperty:@"intCol" ascending:YES];
-    desc = [array.intArray sortedResultsUsingProperty:@"intCol" ascending:NO];
+    asc = [array.intArray sortedResultsUsingKeyPath:@"intCol" ascending:YES];
+    desc = [array.intArray sortedResultsUsingKeyPath:@"intCol" ascending:NO];
 
     XCTAssertEqual(2, [[[asc objectsWhere:@"intCol >= 2"] firstObject] intCol]);
     XCTAssertEqual(4, [[[desc objectsWhere:@"intCol >= 2"] firstObject] intCol]);
@@ -781,6 +827,9 @@
     RLMAssertCount(self.queryObjectClass, 7U, @"string1 ENDSWITH string1");
     RLMAssertCount(self.queryObjectClass, 1U, @"string1 ENDSWITH string2");
     RLMAssertCount(self.queryObjectClass, 2U, @"string2 ENDSWITH string1");
+    RLMAssertCount(self.queryObjectClass, 7U, @"string1 LIKE string1");
+    RLMAssertCount(self.queryObjectClass, 1U, @"string1 LIKE string2");
+    RLMAssertCount(self.queryObjectClass, 1U, @"string2 LIKE string1");
 
     RLMAssertCount(self.queryObjectClass, 7U, @"string1 ==[c] string1");
     RLMAssertCount(self.queryObjectClass, 2U, @"string1 ==[c] string2");
@@ -794,6 +843,9 @@
     RLMAssertCount(self.queryObjectClass, 7U, @"string1 ENDSWITH[c] string1");
     RLMAssertCount(self.queryObjectClass, 2U, @"string1 ENDSWITH[c] string2");
     RLMAssertCount(self.queryObjectClass, 4U, @"string2 ENDSWITH[c] string1");
+    RLMAssertCount(self.queryObjectClass, 7U, @"string1 LIKE[c] string1");
+    RLMAssertCount(self.queryObjectClass, 2U, @"string1 LIKE[c] string2");
+    RLMAssertCount(self.queryObjectClass, 2U, @"string2 LIKE[c] string1");
 
     RLMAssertThrowsWithReasonMatching([self.queryObjectClass objectsWhere:@"int1 == float1"],
                                       @"Property type mismatch between int and float");
@@ -807,6 +859,10 @@
                                       @"Property type mismatch between float and string");
     RLMAssertThrowsWithReasonMatching([self.queryObjectClass objectsWhere:@"double1 < string1"],
                                       @"Property type mismatch between double and string");
+    RLMAssertThrowsWithReasonMatching([self.queryObjectClass objectsWhere:@"double1 LIKE string1"],
+                                      @"Property type mismatch between double and string");
+    RLMAssertThrowsWithReasonMatching([self.queryObjectClass objectsWhere:@"string1 LIKE double1"],
+                                      @"Property type mismatch between string and double");
 }
 
 - (void)testBooleanPredicate
@@ -814,14 +870,8 @@
     RLMAssertCount(BoolObject, 0U, @"boolCol == TRUE");
     RLMAssertCount(BoolObject, 0U, @"boolCol != TRUE");
 
-    if (self.isNull) {
-        RLMAssertCount(BoolObject, 0U, @"boolCol == NULL");
-        RLMAssertCount(BoolObject, 0U, @"boolCol != NULL");
-    }
-    else {
-        XCTAssertThrows([BoolObject objectsWhere:@"boolCol == NULL"]);
-        XCTAssertThrows([BoolObject objectsWhere:@"boolCol != NULL"]);
-    }
+    XCTAssertThrows([BoolObject objectsWhere:@"boolCol == NULL"]);
+    XCTAssertThrows([BoolObject objectsWhere:@"boolCol != NULL"]);
 
     XCTAssertThrowsSpecificNamed([BoolObject objectsWhere:@"boolCol >= TRUE"],
                                  NSException,
@@ -834,12 +884,12 @@
     RLMRealm *realm = [self realm];
 
     [realm beginWriteTransaction];
-    StringObject *so = [StringObject createInRealm:realm withValue:(@[@"abc"])];
+    StringObject *so = [StringObject createInRealm:realm withValue:@[@"abc"]];
+    [StringObject createInRealm:realm withValue:@[@"üvw"]];
+    [StringObject createInRealm:realm withValue:@[@"ûvw"]];
+    [StringObject createInRealm:realm withValue:@[@"uvw"]];
+    [StringObject createInRealm:realm withValue:@[@"stü"]];
     [AllTypesObject createInRealm:realm withValue:@[@YES, @1, @1.0f, @1.0, @"a", [@"a" dataUsingEncoding:NSUTF8StringEncoding], NSDate.date, @YES, @1LL, so]];
-    if (self.isNull) {
-        so = [StringObject createInRealm:realm withValue:@[NSNull.null]];
-        [AllTypesObject createInRealm:realm withValue:@[@YES, @1, @1.0f, @1.0, @"a", [@"a" dataUsingEncoding:NSUTF8StringEncoding], NSDate.date, @YES, @1LL, so]];
-    }
     [realm commitWriteTransaction];
 
     RLMAssertCount(StringObject, 1U, @"stringCol BEGINSWITH 'a'");
@@ -851,6 +901,16 @@
     RLMAssertCount(StringObject, 0U, @"stringCol BEGINSWITH 'A'");
     RLMAssertCount(StringObject, 1U, @"stringCol BEGINSWITH[c] 'a'");
     RLMAssertCount(StringObject, 1U, @"stringCol BEGINSWITH[c] 'A'");
+
+    RLMAssertCount(StringObject, 1U, @"stringCol BEGINSWITH 'u'");
+    RLMAssertCount(StringObject, 1U, @"stringCol BEGINSWITH[c] 'U'");
+    RLMAssertCount(StringObject, 3U, @"stringCol BEGINSWITH[d] 'u'");
+    RLMAssertCount(StringObject, 3U, @"stringCol BEGINSWITH[cd] 'U'");
+
+    RLMAssertCount(StringObject, 1U, @"stringCol BEGINSWITH 'ü'");
+    RLMAssertCount(StringObject, 0U, @"stringCol BEGINSWITH[c] 'Ü'");
+    RLMAssertCount(StringObject, 3U, @"stringCol BEGINSWITH[d] 'ü'");
+    RLMAssertCount(StringObject, 3U, @"stringCol BEGINSWITH[cd] 'Ü'");
 
     RLMAssertCount(AllTypesObject, 1U, @"objectCol.stringCol BEGINSWITH 'a'");
     RLMAssertCount(AllTypesObject, 0U, @"objectCol.stringCol BEGINSWITH 'c'");
@@ -864,12 +924,12 @@
     RLMRealm *realm = [self realm];
 
     [realm beginWriteTransaction];
-    StringObject *so = [StringObject createInRealm:realm withValue:(@[@"abc"])];
+    StringObject *so = [StringObject createInRealm:realm withValue:@[@"abc"]];
+    [StringObject createInRealm:realm withValue:@[@"üvw"]];
+    [StringObject createInRealm:realm withValue:@[@"stü"]];
+    [StringObject createInRealm:realm withValue:@[@"stú"]];
+    [StringObject createInRealm:realm withValue:@[@"stu"]];
     [AllTypesObject createInRealm:realm withValue:@[@YES, @1, @1.0f, @1.0, @"a", [@"a" dataUsingEncoding:NSUTF8StringEncoding], NSDate.date, @YES, @1LL, so]];
-    if (self.isNull) {
-        so = [StringObject createInRealm:realm withValue:@[NSNull.null]];
-        [AllTypesObject createInRealm:realm withValue:@[@YES, @1, @1.0f, @1.0, @"a", [@"a" dataUsingEncoding:NSUTF8StringEncoding], NSDate.date, @YES, @1LL, so]];
-    }
     [realm commitWriteTransaction];
 
     RLMAssertCount(StringObject, 1U, @"stringCol ENDSWITH 'c'");
@@ -881,6 +941,16 @@
     RLMAssertCount(StringObject, 0U, @"stringCol ENDSWITH 'C'");
     RLMAssertCount(StringObject, 1U, @"stringCol ENDSWITH[c] 'c'");
     RLMAssertCount(StringObject, 1U, @"stringCol ENDSWITH[c] 'C'");
+
+    RLMAssertCount(StringObject, 1U, @"stringCol ENDSWITH 'u'");
+    RLMAssertCount(StringObject, 1U, @"stringCol ENDSWITH[c] 'U'");
+    RLMAssertCount(StringObject, 3U, @"stringCol ENDSWITH[d] 'u'");
+    RLMAssertCount(StringObject, 3U, @"stringCol ENDSWITH[cd] 'U'");
+
+    RLMAssertCount(StringObject, 1U, @"stringCol ENDSWITH 'ü'");
+    RLMAssertCount(StringObject, 0U, @"stringCol ENDSWITH[c] 'Ü'");
+    RLMAssertCount(StringObject, 3U, @"stringCol ENDSWITH[d] 'ü'");
+    RLMAssertCount(StringObject, 3U, @"stringCol ENDSWITH[cd] 'Ü'");
 
     RLMAssertCount(AllTypesObject, 1U, @"objectCol.stringCol ENDSWITH 'c'");
     RLMAssertCount(AllTypesObject, 0U, @"objectCol.stringCol ENDSWITH 'a'");
@@ -894,12 +964,11 @@
     RLMRealm *realm = [self realm];
 
     [realm beginWriteTransaction];
-    StringObject *so = [StringObject createInRealm:realm withValue:(@[@"abc"])];
+    StringObject *so = [StringObject createInRealm:realm withValue:@[@"abc"]];
+    [StringObject createInRealm:realm withValue:@[@"tüv"]];
+    [StringObject createInRealm:realm withValue:@[@"tûv"]];
+    [StringObject createInRealm:realm withValue:@[@"tuv"]];
     [AllTypesObject createInRealm:realm withValue:@[@YES, @1, @1.0f, @1.0, @"a", [@"a" dataUsingEncoding:NSUTF8StringEncoding], NSDate.date, @YES, @1LL, so]];
-    if (self.isNull) {
-        so = [StringObject createInRealm:realm withValue:@[NSNull.null]];
-        [AllTypesObject createInRealm:realm withValue:@[@YES, @1, @1.0f, @1.0, @"a", [@"a" dataUsingEncoding:NSUTF8StringEncoding], NSDate.date, @YES, @1LL, so]];
-    }
     [realm commitWriteTransaction];
 
     RLMAssertCount(StringObject, 1U, @"stringCol CONTAINS 'a'");
@@ -916,6 +985,16 @@
     RLMAssertCount(StringObject, 1U, @"stringCol CONTAINS[c] 'c'");
     RLMAssertCount(StringObject, 1U, @"stringCol CONTAINS[c] 'C'");
 
+    RLMAssertCount(StringObject, 1U, @"stringCol CONTAINS 'u'");
+    RLMAssertCount(StringObject, 1U, @"stringCol CONTAINS[c] 'U'");
+    RLMAssertCount(StringObject, 3U, @"stringCol CONTAINS[d] 'u'");
+    RLMAssertCount(StringObject, 3U, @"stringCol CONTAINS[cd] 'U'");
+
+    RLMAssertCount(StringObject, 1U, @"stringCol CONTAINS 'ü'");
+    RLMAssertCount(StringObject, 0U, @"stringCol CONTAINS[c] 'Ü'");
+    RLMAssertCount(StringObject, 3U, @"stringCol CONTAINS[d] 'ü'");
+    RLMAssertCount(StringObject, 3U, @"stringCol CONTAINS[cd] 'Ü'");
+
     RLMAssertCount(AllTypesObject, 0U, @"objectCol.stringCol CONTAINS 'd'");
     RLMAssertCount(AllTypesObject, 1U, @"objectCol.stringCol CONTAINS 'c'");
     RLMAssertCount(AllTypesObject, 0U, @"objectCol.stringCol CONTAINS 'C'");
@@ -923,7 +1002,7 @@
     RLMAssertCount(AllTypesObject, 1U, @"objectCol.stringCol CONTAINS[c] 'C'");
 }
 
-- (void)testStringEquality
+- (void)testStringLike
 {
     RLMRealm *realm = [self realm];
 
@@ -932,14 +1011,70 @@
     [AllTypesObject createInRealm:realm withValue:@[@YES, @1, @1.0f, @1.0, @"a", [@"a" dataUsingEncoding:NSUTF8StringEncoding], NSDate.date, @YES, @1LL, so]];
     [realm commitWriteTransaction];
 
+    RLMAssertCount(StringObject, 1U, @"stringCol LIKE '*a*'");
+    RLMAssertCount(StringObject, 1U, @"stringCol LIKE '*b*'");
+    RLMAssertCount(StringObject, 1U, @"stringCol LIKE '*c'");
+    RLMAssertCount(StringObject, 1U, @"stringCol LIKE 'ab*'");
+    RLMAssertCount(StringObject, 1U, @"stringCol LIKE '*bc'");
+    RLMAssertCount(StringObject, 1U, @"stringCol LIKE 'a*bc'");
+    RLMAssertCount(StringObject, 1U, @"stringCol LIKE '*abc*'");
+    RLMAssertCount(StringObject, 0U, @"stringCol LIKE '*d*'");
+    RLMAssertCount(StringObject, 0U, @"stringCol LIKE 'aabc'");
+    RLMAssertCount(StringObject, 0U, @"stringCol LIKE 'b*bc'");
+
+    RLMAssertCount(StringObject, 1U, @"stringCol LIKE 'a??'");
+    RLMAssertCount(StringObject, 1U, @"stringCol LIKE '?b?'");
+    RLMAssertCount(StringObject, 1U, @"stringCol LIKE '*?c'");
+    RLMAssertCount(StringObject, 1U, @"stringCol LIKE 'ab?'");
+    RLMAssertCount(StringObject, 1U, @"stringCol LIKE '?bc'");
+    RLMAssertCount(StringObject, 0U, @"stringCol LIKE '?d?'");
+    RLMAssertCount(StringObject, 0U, @"stringCol LIKE '?abc'");
+    RLMAssertCount(StringObject, 0U, @"stringCol LIKE 'b?bc'");
+
+    RLMAssertCount(StringObject, 0U, @"stringCol LIKE '*C*'");
+    RLMAssertCount(StringObject, 1U, @"stringCol LIKE[c] '*c*'");
+    RLMAssertCount(StringObject, 1U, @"stringCol LIKE[c] '*C*'");
+
+    RLMAssertCount(AllTypesObject, 0U, @"objectCol.stringCol LIKE '*d*'");
+    RLMAssertCount(AllTypesObject, 1U, @"objectCol.stringCol LIKE '*c*'");
+    RLMAssertCount(AllTypesObject, 0U, @"objectCol.stringCol LIKE '*C*'");
+    RLMAssertCount(AllTypesObject, 1U, @"objectCol.stringCol LIKE[c] '*c*'");
+    RLMAssertCount(AllTypesObject, 1U, @"objectCol.stringCol LIKE[c] '*C*'");
+
+    RLMAssertThrowsWithReasonMatching([StringObject objectsWhere:@"stringCol LIKE[d] '*'"], @"'LIKE' not supported .* diacritic-insensitive");
+    RLMAssertThrowsWithReasonMatching([StringObject objectsWhere:@"stringCol LIKE[cd] '*'"], @"'LIKE' not supported .* diacritic-insensitive");
+}
+
+- (void)testStringEquality
+{
+    RLMRealm *realm = [self realm];
+
+    [realm beginWriteTransaction];
+    StringObject *so = [StringObject createInRealm:realm withValue:(@[@"abc"])];
+    [StringObject createInRealm:realm withValue:@[@"tüv"]];
+    [StringObject createInRealm:realm withValue:@[@"tûv"]];
+    [StringObject createInRealm:realm withValue:@[@"tuv"]];
+    [AllTypesObject createInRealm:realm withValue:@[@YES, @1, @1.0f, @1.0, @"a", [@"a" dataUsingEncoding:NSUTF8StringEncoding], NSDate.date, @YES, @1LL, so]];
+    [realm commitWriteTransaction];
+
     RLMAssertCount(StringObject, 1U, @"stringCol == 'abc'");
-    RLMAssertCount(StringObject, 1U, @"stringCol != 'def'");
+    RLMAssertCount(StringObject, 4U, @"stringCol != 'def'");
     RLMAssertCount(StringObject, 1U, @"stringCol ==[c] 'abc'");
     RLMAssertCount(StringObject, 1U, @"stringCol ==[c] 'ABC'");
 
-    RLMAssertCount(StringObject, 0U, @"stringCol != 'abc'");
+    RLMAssertCount(StringObject, 3U, @"stringCol != 'abc'");
     RLMAssertCount(StringObject, 0U, @"stringCol == 'def'");
     RLMAssertCount(StringObject, 0U, @"stringCol == 'ABC'");
+
+    RLMAssertCount(StringObject, 1U, @"stringCol == 'tuv'");
+    RLMAssertCount(StringObject, 1U, @"stringCol ==[c] 'TUV'");
+    RLMAssertCount(StringObject, 3U, @"stringCol ==[d] 'tuv'");
+    RLMAssertCount(StringObject, 3U, @"stringCol ==[cd] 'TUV'");
+
+    RLMAssertCount(StringObject, 3U, @"stringCol != 'tuv'");
+    RLMAssertCount(StringObject, 3U, @"stringCol !=[c] 'TUV'");
+    RLMAssertCount(StringObject, 1U, @"stringCol !=[d] 'tuv'");
+    RLMAssertCount(StringObject, 1U, @"stringCol !=[cd] 'TUV'");
 
     RLMAssertCount(AllTypesObject, 1U, @"objectCol.stringCol == 'abc'");
     RLMAssertCount(AllTypesObject, 1U, @"objectCol.stringCol != 'def'");
@@ -1309,6 +1444,8 @@
     XCTAssertNoThrow(([CircleObject objectsInRealm:realm where:@"next = %@", circle]));
     XCTAssertNoThrow(([CircleObject objectsInRealm:realm where:@"next.next = %@", circle]));
     XCTAssertTrue([circle.next.next.next.next isEqualToObject:[CircleObject objectsInRealm:realm where:@"next = nil"].firstObject]);
+    XCTAssertTrue([circle.next.next.next isEqualToObject:[CircleObject objectsInRealm:realm where:@"next != nil AND next.next = nil"].firstObject]);
+    XCTAssertTrue([circle.next.next isEqualToObject:[CircleObject objectsInRealm:realm where:@"next.next != nil AND next.next.next = nil"].firstObject]);
 }
 
 - (void)testArrayMultiLevelLinkQuery
@@ -1643,7 +1780,7 @@
     [EmployeeObject createInRealm:realm withValue:@{@"name": @"Joe",  @"age": @40, @"hired": @YES}];
     [realm commitWriteTransaction];
 
-    RLMResults *subarray = nil;
+    RLMResults<EmployeeObject *> *subarray = nil;
     @autoreleasepool {
         __attribute((objc_precise_lifetime)) CompanyObject *co = [CompanyObject allObjects][0];
         subarray = [co.employees objectsWhere:@"age = 40"];
@@ -1673,9 +1810,9 @@
 
     CompanyObject *co = CompanyObject.allObjects.firstObject;
     RLMResults *basic = [co.employees objectsWhere:@"age = 40"];
-    RLMResults *sort = [co.employees sortedResultsUsingProperty:@"name" ascending:YES];
-    RLMResults *sortQuery = [[co.employees sortedResultsUsingProperty:@"name" ascending:YES] objectsWhere:@"age = 40"];
-    RLMResults *querySort = [[co.employees objectsWhere:@"age = 40"] sortedResultsUsingProperty:@"name" ascending:YES];
+    RLMResults *sort = [co.employees sortedResultsUsingKeyPath:@"name" ascending:YES];
+    RLMResults *sortQuery = [[co.employees sortedResultsUsingKeyPath:@"name" ascending:YES] objectsWhere:@"age = 40"];
+    RLMResults *querySort = [[co.employees objectsWhere:@"age = 40"] sortedResultsUsingKeyPath:@"name" ascending:YES];
 
     XCTAssertEqual(1U, basic.count);
     XCTAssertEqual(2U, sort.count);
@@ -1946,6 +2083,10 @@
     // Linking objects cannot contain null so their members cannot be compared with null.
     XCTAssertThrows([PersonObject objectsWhere:@"ANY parents == NULL"]);
 
+    // People that have a parent under the age of 31 where that parent has a parent over the age of 35 whose name is Michael.
+    RLMResults *r14 = [PersonObject objectsWhere:@"SUBQUERY(parents, $p1, $p1.age < 31 AND SUBQUERY($p1.parents, $p2, $p2.age > 35 AND $p2.name == 'Michael').@count > 0).@count > 0"];
+    XCTAssertEqualObjects(asArray(r14), (@[ hannah ]));
+
 
     // Add a new link and verify that the existing results update as expected.
     __block PersonObject *mackenzie;
@@ -1993,155 +2134,9 @@
 
     // All links are not equal to a detached row accessor so this will match all rows that are linked to.
     XCTAssertEqualObjects(asArray(r13), (@[ hannah, elijah, mark, jason, diane, carol, mackenzie ]));
-}
 
-@end
-
-@interface NullQueryTests : QueryTests
-@end
-
-@implementation NullQueryTests
-- (Class)queryObjectClass {
-    return [NullQueryObject class];
-}
-
-- (void)testQueryOnNullableStringColumn {
-    void (^testWithStringClass)(Class) = ^(Class stringObjectClass) {
-        RLMRealm *realm = [self realm];
-        [realm transactionWithBlock:^{
-            [stringObjectClass createInRealm:realm withValue:@[@"a"]];
-            [stringObjectClass createInRealm:realm withValue:@[NSNull.null]];
-            [stringObjectClass createInRealm:realm withValue:@[@"b"]];
-            [stringObjectClass createInRealm:realm withValue:@[NSNull.null]];
-            [stringObjectClass createInRealm:realm withValue:@[@""]];
-        }];
-
-        RLMResults *allObjects = [stringObjectClass allObjectsInRealm:realm];
-        XCTAssertEqual(5U, allObjects.count);
-
-        RLMResults *nilStrings = [stringObjectClass objectsInRealm:realm where:@"stringCol = NULL"];
-        XCTAssertEqual(2U, nilStrings.count);
-        XCTAssertEqualObjects((@[NSNull.null, NSNull.null]), [nilStrings valueForKey:@"stringCol"]);
-
-        RLMResults *nonNilStrings = [stringObjectClass objectsInRealm:realm where:@"stringCol != NULL"];
-        XCTAssertEqual(3U, nonNilStrings.count);
-        XCTAssertEqualObjects((@[@"a", @"b", @""]), [nonNilStrings valueForKey:@"stringCol"]);
-
-        RLMAssertCount(stringObjectClass, 3U, @"stringCol IN {NULL, 'a'}");
-
-        RLMAssertCount(stringObjectClass, 1U, @"stringCol CONTAINS 'a'");
-        RLMAssertCount(stringObjectClass, 1U, @"stringCol BEGINSWITH 'a'");
-        RLMAssertCount(stringObjectClass, 1U, @"stringCol ENDSWITH 'a'");
-
-        RLMAssertCount(stringObjectClass, 0U, @"stringCol CONTAINS 'z'");
-
-        RLMAssertCount(stringObjectClass, 1U, @"stringCol = ''");
-
-        RLMResults *sorted = [[stringObjectClass allObjectsInRealm:realm] sortedResultsUsingProperty:@"stringCol" ascending:YES];
-        XCTAssertEqualObjects((@[NSNull.null, NSNull.null, @"", @"a", @"b"]), [sorted valueForKey:@"stringCol"]);
-        XCTAssertEqualObjects((@[@"b", @"a", @"", NSNull.null, NSNull.null]), [[sorted sortedResultsUsingProperty:@"stringCol" ascending:NO] valueForKey:@"stringCol"]);
-
-        [realm transactionWithBlock:^{
-            [realm deleteObject:[stringObjectClass allObjectsInRealm:realm].firstObject];
-        }];
-
-        XCTAssertEqual(2U, nilStrings.count);
-        XCTAssertEqual(2U, nonNilStrings.count);
-
-        XCTAssertEqualObjects([nonNilStrings valueForKey:@"stringCol"], [[stringObjectClass objectsInRealm:realm where:@"stringCol CONTAINS ''"] valueForKey:@"stringCol"]);
-        XCTAssertEqualObjects([nonNilStrings valueForKey:@"stringCol"], [[stringObjectClass objectsInRealm:realm where:@"stringCol BEGINSWITH ''"] valueForKey:@"stringCol"]);
-        XCTAssertEqualObjects([nonNilStrings valueForKey:@"stringCol"], [[stringObjectClass objectsInRealm:realm where:@"stringCol ENDSWITH ''"] valueForKey:@"stringCol"]);
-        XCTAssertEqualObjects([nonNilStrings valueForKey:@"stringCol"], [[stringObjectClass objectsInRealm:realm where:@"stringCol CONTAINS[c] ''"] valueForKey:@"stringCol"]);
-        XCTAssertEqualObjects([nonNilStrings valueForKey:@"stringCol"], [[stringObjectClass objectsInRealm:realm where:@"stringCol BEGINSWITH[c] ''"] valueForKey:@"stringCol"]);
-        XCTAssertEqualObjects([nonNilStrings valueForKey:@"stringCol"], [[stringObjectClass objectsInRealm:realm where:@"stringCol ENDSWITH[c] ''"] valueForKey:@"stringCol"]);
-
-        XCTAssertEqualObjects(@[], ([[stringObjectClass objectsInRealm:realm where:@"stringCol CONTAINS %@", @"\0"] valueForKey:@"self"]));
-        XCTAssertEqualObjects([[stringObjectClass allObjectsInRealm:realm] valueForKey:@"stringCol"], ([[StringObject objectsInRealm:realm where:@"stringCol CONTAINS NULL"] valueForKey:@"stringCol"]));
-    };
-    testWithStringClass([StringObject class]);
-    testWithStringClass([IndexedStringObject class]);
-}
-
-- (void)testQueryingOnLinkToNullableStringColumn {
-    void (^testWithStringClass)(Class, Class) = ^(Class stringLinkClass, Class stringObjectClass) {
-        RLMRealm *realm = [self realm];
-        [realm transactionWithBlock:^{
-            [stringLinkClass createInRealm:realm withValue:@[[stringObjectClass createInRealm:realm withValue:@[@"a"]]]];
-            [stringLinkClass createInRealm:realm withValue:@[[stringObjectClass createInRealm:realm withValue:@[NSNull.null]]]];
-            [stringLinkClass createInRealm:realm withValue:@[[stringObjectClass createInRealm:realm withValue:@[@"b"]]]];
-            [stringLinkClass createInRealm:realm withValue:@[[stringObjectClass createInRealm:realm withValue:@[NSNull.null]]]];
-            [stringLinkClass createInRealm:realm withValue:@[[stringObjectClass createInRealm:realm withValue:@[@""]]]];
-        }];
-
-        RLMResults *nilStrings = [stringLinkClass objectsInRealm:realm where:@"objectCol.stringCol = NULL"];
-        XCTAssertEqual(2U, nilStrings.count);
-        XCTAssertEqualObjects((@[NSNull.null, NSNull.null]), [nilStrings valueForKeyPath:@"objectCol.stringCol"]);
-
-        RLMResults *nonNilStrings = [stringLinkClass objectsInRealm:realm where:@"objectCol.stringCol != NULL"];
-        XCTAssertEqual(3U, nonNilStrings.count);
-        XCTAssertEqualObjects((@[@"a", @"b", @""]), [nonNilStrings valueForKeyPath:@"objectCol.stringCol"]);
-
-        RLMAssertCount(stringLinkClass, 3U, @"objectCol.stringCol IN {NULL, 'a'}");
-
-        RLMAssertCount(stringLinkClass, 1U, @"objectCol.stringCol CONTAINS 'a'");
-        RLMAssertCount(stringLinkClass, 1U, @"objectCol.stringCol BEGINSWITH 'a'");
-        RLMAssertCount(stringLinkClass, 1U, @"objectCol.stringCol ENDSWITH 'a'");
-
-        RLMAssertCount(stringLinkClass, 0U, @"objectCol.stringCol CONTAINS 'z'");
-
-        RLMAssertCount(stringLinkClass, 1U, @"objectCol.stringCol = ''");
-    };
-
-    testWithStringClass([LinkStringObject class], [StringObject class]);
-    testWithStringClass([LinkIndexedStringObject class], [IndexedStringObject class]);
-}
-
-- (void)testSortingColumnsWithNull {
-    RLMRealm *realm = [self realm];
-    [realm beginWriteTransaction];
-
-    {
-        NumberObject *no1 = [NumberObject createInRealm:realm withValue:@[@1, @1.1f, @1.1, @YES]];
-        NumberObject *noNull = [NumberObject createInRealm:realm withValue:@[NSNull.null, NSNull.null, NSNull.null, NSNull.null]];
-        NumberObject *no0 = [NumberObject createInRealm:realm withValue:@[@0, @0.0f, @0.0, @NO]];
-        for (RLMProperty *property in [[NumberObject alloc] init].objectSchema.properties) {
-            NSString *name = property.name;
-            RLMResults *ascending = [[NumberObject allObjectsInRealm:realm] sortedResultsUsingProperty:name ascending:YES];
-            XCTAssertEqualObjects([ascending valueForKey:name], ([@[noNull, no0, no1] valueForKey:name]));
-
-            RLMResults *descending = [[NumberObject allObjectsInRealm:realm] sortedResultsUsingProperty:name ascending:NO];
-            XCTAssertEqualObjects([descending valueForKey:name], ([@[no1, no0, noNull] valueForKey:name]));
-        }
-    }
-
-    {
-        DateObject *doPositive = [DateObject createInRealm:realm withValue:@[[NSDate dateWithTimeIntervalSince1970:100]]];
-        DateObject *doNegative = [DateObject createInRealm:realm withValue:@[[NSDate dateWithTimeIntervalSince1970:-100]]];
-        DateObject *doZero = [DateObject createInRealm:realm withValue:@[[NSDate dateWithTimeIntervalSince1970:0]]];
-        DateObject *doNull = [DateObject createInRealm:realm withValue:@[NSNull.null]];
-
-        RLMResults *ascending = [[DateObject allObjectsInRealm:realm] sortedResultsUsingProperty:@"dateCol" ascending:YES];
-        XCTAssertEqualObjects([ascending valueForKey:@"dateCol"], ([@[doNull, doNegative, doZero, doPositive] valueForKey:@"dateCol"]));
-
-        RLMResults *descending = [[DateObject allObjectsInRealm:realm] sortedResultsUsingProperty:@"dateCol" ascending:NO];
-        XCTAssertEqualObjects([descending valueForKey:@"dateCol"], ([@[doPositive, doZero, doNegative, doNull] valueForKey:@"dateCol"]));
-    }
-
-    {
-        StringObject *soA = [StringObject createInRealm:realm withValue:@[@"A"]];
-        StringObject *soEmpty = [StringObject createInRealm:realm withValue:@[@""]];
-        StringObject *soB = [StringObject createInRealm:realm withValue:@[@"B"]];
-        StringObject *soNull = [StringObject createInRealm:realm withValue:@[NSNull.null]];
-        StringObject *soAB = [StringObject createInRealm:realm withValue:@[@"AB"]];
-
-        RLMResults *ascending = [[StringObject allObjectsInRealm:realm] sortedResultsUsingProperty:@"stringCol" ascending:YES];
-        XCTAssertEqualObjects([ascending valueForKey:@"stringCol"], ([@[soNull, soEmpty, soA, soAB, soB] valueForKey:@"stringCol"]));
-
-        RLMResults *descending = [[StringObject allObjectsInRealm:realm] sortedResultsUsingProperty:@"stringCol" ascending:NO];
-        XCTAssertEqualObjects([descending valueForKey:@"stringCol"], ([@[soB, soAB, soA, soEmpty, soNull] valueForKey:@"stringCol"]));
-    }
-
-    [realm cancelWriteTransaction];
+    // People that have a parent under the age of 31 where that parent has a parent over the age of 35 whose name is Michael.
+    XCTAssertEqualObjects(asArray(r14), (@[ hannah ]));
 }
 
 - (void)testCountOnCollection {
@@ -2242,6 +2237,185 @@
     RLMAssertThrowsWithReasonMatching(([IntegerArrayPropertyObject objectsWhere:@"array.@min.intCol == 1.23"]), @"@min.*type int cannot be compared");
     RLMAssertThrowsWithReasonMatching(([IntegerArrayPropertyObject objectsWhere:@"array.@max.intCol == 1.23"]), @"@max.*type int cannot be compared");
     RLMAssertThrowsWithReasonMatching(([IntegerArrayPropertyObject objectsWhere:@"array.@sum.intCol == 1.23"]), @"@sum.*type int cannot be compared");
+}
+
+@end
+
+@interface NullQueryTests : QueryTests
+@end
+
+@implementation NullQueryTests
+- (Class)queryObjectClass {
+    return [NullQueryObject class];
+}
+
+- (void)testQueryOnNullableStringColumn {
+    void (^testWithStringClass)(Class) = ^(Class stringObjectClass) {
+        RLMRealm *realm = [self realm];
+        [realm transactionWithBlock:^{
+            [stringObjectClass createInRealm:realm withValue:@[@"a"]];
+            [stringObjectClass createInRealm:realm withValue:@[NSNull.null]];
+            [stringObjectClass createInRealm:realm withValue:@[@"b"]];
+            [stringObjectClass createInRealm:realm withValue:@[NSNull.null]];
+            [stringObjectClass createInRealm:realm withValue:@[@""]];
+        }];
+
+        RLMResults *allObjects = [stringObjectClass allObjectsInRealm:realm];
+        XCTAssertEqual(5U, allObjects.count);
+
+        RLMResults *nilStrings = [stringObjectClass objectsInRealm:realm where:@"stringCol = NULL"];
+        XCTAssertEqual(2U, nilStrings.count);
+        XCTAssertEqualObjects((@[NSNull.null, NSNull.null]), [nilStrings valueForKey:@"stringCol"]);
+
+        RLMResults *nilLikeStrings = [stringObjectClass objectsInRealm:realm where:@"stringCol LIKE NULL"];
+        XCTAssertEqual(2U, nilLikeStrings.count);
+        XCTAssertEqualObjects((@[NSNull.null, NSNull.null]), [nilLikeStrings valueForKey:@"stringCol"]);
+
+        RLMResults *nonNilStrings = [stringObjectClass objectsInRealm:realm where:@"stringCol != NULL"];
+        XCTAssertEqual(3U, nonNilStrings.count);
+        XCTAssertEqualObjects((@[@"a", @"b", @""]), [nonNilStrings valueForKey:@"stringCol"]);
+
+        RLMResults *nonNilLikeStrings = [stringObjectClass objectsInRealm:realm where:@"NOT stringCol LIKE NULL"];
+        XCTAssertEqual(3U, nonNilLikeStrings.count);
+        XCTAssertEqualObjects((@[@"a", @"b", @""]), [nonNilLikeStrings valueForKey:@"stringCol"]);
+
+        RLMAssertCount(stringObjectClass, 3U, @"stringCol IN {NULL, 'a'}");
+
+        RLMAssertCount(stringObjectClass, 1U, @"stringCol CONTAINS 'a'");
+        RLMAssertCount(stringObjectClass, 1U, @"stringCol BEGINSWITH 'a'");
+        RLMAssertCount(stringObjectClass, 1U, @"stringCol ENDSWITH 'a'");
+        RLMAssertCount(stringObjectClass, 1U, @"stringCol LIKE 'a'");
+
+        RLMAssertCount(stringObjectClass, 0U, @"stringCol CONTAINS 'z'");
+        RLMAssertCount(stringObjectClass, 0U, @"stringCol LIKE 'z'");
+
+        RLMAssertCount(stringObjectClass, 1U, @"stringCol = ''");
+
+        RLMResults *sorted = [[stringObjectClass allObjectsInRealm:realm] sortedResultsUsingKeyPath:@"stringCol" ascending:YES];
+        XCTAssertEqualObjects((@[NSNull.null, NSNull.null, @"", @"a", @"b"]), [sorted valueForKey:@"stringCol"]);
+        XCTAssertEqualObjects((@[@"b", @"a", @"", NSNull.null, NSNull.null]), [[sorted sortedResultsUsingKeyPath:@"stringCol" ascending:NO] valueForKey:@"stringCol"]);
+
+        [realm transactionWithBlock:^{
+            [realm deleteObject:[stringObjectClass allObjectsInRealm:realm].firstObject];
+        }];
+
+        XCTAssertEqual(2U, nilStrings.count);
+        XCTAssertEqual(2U, nonNilStrings.count);
+
+        XCTAssertEqualObjects([nonNilStrings valueForKey:@"stringCol"], [[stringObjectClass objectsInRealm:realm where:@"stringCol CONTAINS ''"] valueForKey:@"stringCol"]);
+        XCTAssertEqualObjects([nonNilStrings valueForKey:@"stringCol"], [[stringObjectClass objectsInRealm:realm where:@"stringCol BEGINSWITH ''"] valueForKey:@"stringCol"]);
+        XCTAssertEqualObjects([nonNilStrings valueForKey:@"stringCol"], [[stringObjectClass objectsInRealm:realm where:@"stringCol ENDSWITH ''"] valueForKey:@"stringCol"]);
+        XCTAssertEqualObjects([nonNilStrings valueForKey:@"stringCol"], [[stringObjectClass objectsInRealm:realm where:@"stringCol LIKE '*'"] valueForKey:@"stringCol"]);
+        XCTAssertEqualObjects([nonNilStrings valueForKey:@"stringCol"], [[stringObjectClass objectsInRealm:realm where:@"stringCol CONTAINS[c] ''"] valueForKey:@"stringCol"]);
+        XCTAssertEqualObjects([nonNilStrings valueForKey:@"stringCol"], [[stringObjectClass objectsInRealm:realm where:@"stringCol BEGINSWITH[c] ''"] valueForKey:@"stringCol"]);
+        XCTAssertEqualObjects([nonNilStrings valueForKey:@"stringCol"], [[stringObjectClass objectsInRealm:realm where:@"stringCol ENDSWITH[c] ''"] valueForKey:@"stringCol"]);
+        XCTAssertEqualObjects([nonNilStrings valueForKey:@"stringCol"], [[stringObjectClass objectsInRealm:realm where:@"stringCol LIKE[c] '*'"] valueForKey:@"stringCol"]);
+
+        XCTAssertEqualObjects([nonNilStrings valueForKey:@"stringCol"], [[stringObjectClass objectsInRealm:realm where:@"stringCol CONTAINS[d] ''"] valueForKey:@"stringCol"]);
+        XCTAssertEqualObjects([nonNilStrings valueForKey:@"stringCol"], [[stringObjectClass objectsInRealm:realm where:@"stringCol BEGINSWITH[d] ''"] valueForKey:@"stringCol"]);
+        XCTAssertEqualObjects([nonNilStrings valueForKey:@"stringCol"], [[stringObjectClass objectsInRealm:realm where:@"stringCol ENDSWITH[d] ''"] valueForKey:@"stringCol"]);
+        XCTAssertEqualObjects([nonNilStrings valueForKey:@"stringCol"], [[stringObjectClass objectsInRealm:realm where:@"stringCol CONTAINS[cd] ''"] valueForKey:@"stringCol"]);
+        XCTAssertEqualObjects([nonNilStrings valueForKey:@"stringCol"], [[stringObjectClass objectsInRealm:realm where:@"stringCol BEGINSWITH[cd] ''"] valueForKey:@"stringCol"]);
+        XCTAssertEqualObjects([nonNilStrings valueForKey:@"stringCol"], [[stringObjectClass objectsInRealm:realm where:@"stringCol ENDSWITH[cd] ''"] valueForKey:@"stringCol"]);
+
+        XCTAssertEqualObjects(@[], ([[stringObjectClass objectsInRealm:realm where:@"stringCol CONTAINS %@", @"\0"] valueForKey:@"self"]));
+        XCTAssertEqualObjects([[stringObjectClass allObjectsInRealm:realm] valueForKey:@"stringCol"], ([[StringObject objectsInRealm:realm where:@"stringCol CONTAINS NULL"] valueForKey:@"stringCol"]));
+        XCTAssertEqualObjects([[stringObjectClass allObjectsInRealm:realm] valueForKey:@"stringCol"], ([[StringObject objectsInRealm:realm where:@"stringCol CONTAINS[d] NULL"] valueForKey:@"stringCol"]));
+    };
+    testWithStringClass([StringObject class]);
+    testWithStringClass([IndexedStringObject class]);
+}
+
+- (void)testQueryingOnLinkToNullableStringColumn {
+    void (^testWithStringClass)(Class, Class) = ^(Class stringLinkClass, Class stringObjectClass) {
+        RLMRealm *realm = [self realm];
+        [realm transactionWithBlock:^{
+            [stringLinkClass createInRealm:realm withValue:@[[stringObjectClass createInRealm:realm withValue:@[@"a"]]]];
+            [stringLinkClass createInRealm:realm withValue:@[[stringObjectClass createInRealm:realm withValue:@[NSNull.null]]]];
+            [stringLinkClass createInRealm:realm withValue:@[[stringObjectClass createInRealm:realm withValue:@[@"b"]]]];
+            [stringLinkClass createInRealm:realm withValue:@[[stringObjectClass createInRealm:realm withValue:@[NSNull.null]]]];
+            [stringLinkClass createInRealm:realm withValue:@[[stringObjectClass createInRealm:realm withValue:@[@""]]]];
+        }];
+
+        RLMResults *nilStrings = [stringLinkClass objectsInRealm:realm where:@"objectCol.stringCol = NULL"];
+        XCTAssertEqual(2U, nilStrings.count);
+        XCTAssertEqualObjects((@[NSNull.null, NSNull.null]), [nilStrings valueForKeyPath:@"objectCol.stringCol"]);
+
+        RLMResults *nilLikeStrings = [stringLinkClass objectsInRealm:realm where:@"objectCol.stringCol LIKE NULL"];
+        XCTAssertEqual(2U, nilLikeStrings.count);
+        XCTAssertEqualObjects((@[NSNull.null, NSNull.null]), [nilLikeStrings valueForKeyPath:@"objectCol.stringCol"]);
+
+        RLMResults *nonNilStrings = [stringLinkClass objectsInRealm:realm where:@"objectCol.stringCol != NULL"];
+        XCTAssertEqual(3U, nonNilStrings.count);
+        XCTAssertEqualObjects((@[@"a", @"b", @""]), [nonNilStrings valueForKeyPath:@"objectCol.stringCol"]);
+
+        RLMResults *nonNilLikeStrings = [stringLinkClass objectsInRealm:realm where:@"NOT objectCol.stringCol LIKE NULL"];
+        XCTAssertEqual(3U, nonNilLikeStrings.count);
+        XCTAssertEqualObjects((@[@"a", @"b", @""]), [nonNilLikeStrings valueForKeyPath:@"objectCol.stringCol"]);
+
+        RLMAssertCount(stringLinkClass, 3U, @"objectCol.stringCol IN {NULL, 'a'}");
+
+        RLMAssertCount(stringLinkClass, 1U, @"objectCol.stringCol CONTAINS 'a'");
+        RLMAssertCount(stringLinkClass, 1U, @"objectCol.stringCol BEGINSWITH 'a'");
+        RLMAssertCount(stringLinkClass, 1U, @"objectCol.stringCol ENDSWITH 'a'");
+        RLMAssertCount(stringLinkClass, 1U, @"objectCol.stringCol LIKE 'a'");
+        RLMAssertCount(stringLinkClass, 0U, @"objectCol.stringCol LIKE 'c'");
+
+        RLMAssertCount(stringLinkClass, 0U, @"objectCol.stringCol CONTAINS 'z'");
+
+        RLMAssertCount(stringLinkClass, 1U, @"objectCol.stringCol = ''");
+    };
+
+    testWithStringClass([LinkStringObject class], [StringObject class]);
+    testWithStringClass([LinkIndexedStringObject class], [IndexedStringObject class]);
+}
+
+- (void)testSortingColumnsWithNull {
+    RLMRealm *realm = [self realm];
+    [realm beginWriteTransaction];
+
+    {
+        NumberObject *no1 = [NumberObject createInRealm:realm withValue:@[@1, @1.1f, @1.1, @YES]];
+        NumberObject *noNull = [NumberObject createInRealm:realm withValue:@[NSNull.null, NSNull.null, NSNull.null, NSNull.null]];
+        NumberObject *no0 = [NumberObject createInRealm:realm withValue:@[@0, @0.0f, @0.0, @NO]];
+        for (RLMProperty *property in [[NumberObject alloc] init].objectSchema.properties) {
+            NSString *name = property.name;
+            RLMResults *ascending = [[NumberObject allObjectsInRealm:realm] sortedResultsUsingKeyPath:name ascending:YES];
+            XCTAssertEqualObjects([ascending valueForKey:name], ([@[noNull, no0, no1] valueForKey:name]));
+
+            RLMResults *descending = [[NumberObject allObjectsInRealm:realm] sortedResultsUsingKeyPath:name ascending:NO];
+            XCTAssertEqualObjects([descending valueForKey:name], ([@[no1, no0, noNull] valueForKey:name]));
+        }
+    }
+
+    {
+        DateObject *doPositive = [DateObject createInRealm:realm withValue:@[[NSDate dateWithTimeIntervalSince1970:100]]];
+        DateObject *doNegative = [DateObject createInRealm:realm withValue:@[[NSDate dateWithTimeIntervalSince1970:-100]]];
+        DateObject *doZero = [DateObject createInRealm:realm withValue:@[[NSDate dateWithTimeIntervalSince1970:0]]];
+        DateObject *doNull = [DateObject createInRealm:realm withValue:@[NSNull.null]];
+
+        RLMResults *ascending = [[DateObject allObjectsInRealm:realm] sortedResultsUsingKeyPath:@"dateCol" ascending:YES];
+        XCTAssertEqualObjects([ascending valueForKey:@"dateCol"], ([@[doNull, doNegative, doZero, doPositive] valueForKey:@"dateCol"]));
+
+        RLMResults *descending = [[DateObject allObjectsInRealm:realm] sortedResultsUsingKeyPath:@"dateCol" ascending:NO];
+        XCTAssertEqualObjects([descending valueForKey:@"dateCol"], ([@[doPositive, doZero, doNegative, doNull] valueForKey:@"dateCol"]));
+    }
+
+    {
+        StringObject *soA = [StringObject createInRealm:realm withValue:@[@"A"]];
+        StringObject *soEmpty = [StringObject createInRealm:realm withValue:@[@""]];
+        StringObject *soB = [StringObject createInRealm:realm withValue:@[@"B"]];
+        StringObject *soNull = [StringObject createInRealm:realm withValue:@[NSNull.null]];
+        StringObject *soAB = [StringObject createInRealm:realm withValue:@[@"AB"]];
+
+        RLMResults *ascending = [[StringObject allObjectsInRealm:realm] sortedResultsUsingKeyPath:@"stringCol" ascending:YES];
+        XCTAssertEqualObjects([ascending valueForKey:@"stringCol"], ([@[soNull, soEmpty, soA, soAB, soB] valueForKey:@"stringCol"]));
+
+        RLMResults *descending = [[StringObject allObjectsInRealm:realm] sortedResultsUsingKeyPath:@"stringCol" ascending:NO];
+        XCTAssertEqualObjects([descending valueForKey:@"stringCol"], ([@[soB, soAB, soA, soEmpty, soNull] valueForKey:@"stringCol"]));
+    }
+
+    [realm cancelWriteTransaction];
 }
 
 struct NullTestData {
@@ -2533,13 +2707,17 @@ struct NullTestData {
 @implementation QueryWithReversedColumnOrderTests
 - (RLMRealm *)realm {
     @autoreleasepool {
-        NSArray *classNames = @[@"AllTypesObject", @"QueryObject",
-                                @"PersonObject", @"DogObject",
-                                @"EmployeeObject", @"CompanyObject"];
+        NSSet *classNames = [NSSet setWithArray:@[@"AllTypesObject", @"QueryObject", @"PersonObject", @"DogObject",
+                                                  @"EmployeeObject", @"CompanyObject", @"OwnerObject"]];
         RLMSchema *schema = [RLMSchema.sharedSchema copy];
-        for (NSString *className in classNames) {
-            [self reverseProperties:schema[className]];
+        NSMutableArray *objectSchemas = [schema.objectSchema mutableCopy];
+        for (NSUInteger i = 0; i < objectSchemas.count; i++) {
+            RLMObjectSchema *objectSchema = objectSchemas[i];
+            if ([classNames member:objectSchema.className]) {
+                objectSchemas[i] = [self reverseProperties:objectSchema];
+            }
         }
+        schema.objectSchema = objectSchemas;
         RLMRealmConfiguration *config = [RLMRealmConfiguration defaultConfiguration];
         config.customSchema = schema;
         [RLMRealm realmWithConfiguration:config error:nil];

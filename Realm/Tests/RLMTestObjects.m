@@ -52,8 +52,7 @@
 @end
 
 @implementation IndexedStringObject
-+ (NSArray *)indexedProperties
-{
++ (NSArray *)indexedProperties {
     return @[@"stringCol"];
 }
 @end
@@ -67,6 +66,12 @@
 @implementation RequiredPropertiesObject
 + (NSArray *)requiredProperties {
     return @[@"stringCol", @"binaryCol"];
+}
+@end
+
+@implementation IgnoredURLObject
++ (NSArray *)ignoredProperties {
+    return @[@"url"];
 }
 @end
 
@@ -92,6 +97,15 @@
 @implementation AllOptionalTypes
 @end
 
+@implementation AllOptionalTypesPK
++ (NSString *)primaryKey {
+    return @"pk";
+}
++ (NSDictionary *)defaultPropertyValues {
+    return @{@"pk": NSUUID.UUID.UUIDString};
+}
+@end
+
 #pragma mark - Real Life Objects
 #pragma mark -
 
@@ -103,6 +117,24 @@
 #pragma mark CompanyObject
 
 @implementation CompanyObject
+@end
+
+@implementation PrimaryEmployeeObject
++ (NSString *)primaryKey {
+    return @"name";
+}
+@end
+
+@implementation LinkToPrimaryEmployeeObject
+@end
+
+@implementation PrimaryCompanyObject
++ (NSString *)primaryKey {
+    return @"name";
+}
+@end
+
+@implementation ArrayOfPrimaryCompanies
 @end
 
 #pragma mark LinkToCompanyObject
@@ -124,6 +156,12 @@
 #pragma mark OwnerObject
 
 @implementation OwnerObject
+
+- (BOOL)isEqual:(id)other
+{
+    return [self isEqualToObject:other];
+}
+
 @end
 
 #pragma mark - Specific Use Objects
@@ -163,6 +201,8 @@
 
 @implementation AggregateObject
 @end
+@implementation AggregateArrayObject
+@end
 
 #pragma mark PrimaryStringObject
 
@@ -170,7 +210,35 @@
 + (NSString *)primaryKey {
     return @"stringCol";
 }
++ (NSArray *)requiredProperties {
+    return @[@"stringCol"];
+}
 @end
+
+@implementation PrimaryNullableStringObject
++ (NSString *)primaryKey {
+    return @"stringCol";
+}
+@end
+
+@implementation PrimaryIntObject
++ (NSString *)primaryKey {
+    return @"intCol";
+}
+@end
+
+@implementation PrimaryInt64Object
++ (NSString *)primaryKey {
+    return @"int64Col";
+}
+@end
+
+@implementation PrimaryNullableIntObject
++ (NSString *)primaryKey {
+    return @"optIntCol";
+}
+@end
+
 
 #pragma mark ReadOnlyPropertyObject
 
@@ -193,13 +261,17 @@
 @end
 
 @implementation NumberDefaultsObject
-+ (nullable NSDictionary *)defaultPropertyValues {
-    return @{
-             @"intObj" : @1,
++ (NSDictionary *)defaultPropertyValues {
+    return @{@"intObj" : @1,
              @"floatObj" : @2.2f,
              @"doubleObj" : @3.3,
-             @"boolObj" : @NO,
-             };
+             @"boolObj" : @NO};
+}
+@end
+
+@implementation RequiredNumberObject
++ (NSArray *)requiredProperties {
+    return @[@"intObj", @"floatObj", @"doubleObj", @"boolObj"];
 }
 @end
 
@@ -255,4 +327,5 @@
 + (NSArray *)requiredProperties { return nil; }
 + (NSDictionary *)linkingObjectsProperties { return nil; }
 + (BOOL)shouldIncludeInDefaultSchema { return NO; }
++ (NSString *)_realmObjectName { return nil; }
 @end

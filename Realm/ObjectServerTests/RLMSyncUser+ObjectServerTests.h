@@ -22,9 +22,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface RLMSyncUser (ObjectServerTests)
 
-- (void)waitForUploadToFinish:(NSURL *)url;
-- (void)waitForDownloadToFinish:(NSURL *)url;
+- (BOOL)waitForUploadToFinish:(NSURL *)url;
+- (BOOL)waitForDownloadToFinish:(NSURL *)url;
+
+- (void)simulateClientResetErrorForSession:(NSURL *)url;
 
 @end
+
+FOUNDATION_EXTERN bool RLMHasCachedRealmForPath(NSString *path);
 
 NS_ASSUME_NONNULL_END

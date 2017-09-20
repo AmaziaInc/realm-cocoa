@@ -18,13 +18,13 @@
 
 #import "RLMTestCase.h"
 
-#import <objc/runtime.h>
 #import "RLMObjectSchema_Private.h"
 #import "RLMProperty_Private.h"
 #import "RLMRealm_Dynamic.h"
 
-@interface PropertyTests : RLMTestCase
+#import <objc/runtime.h>
 
+@interface PropertyTests : RLMTestCase
 @end
 
 @implementation PropertyTests
@@ -88,7 +88,12 @@
     { // Test primary key property
         RLMObjectSchema *objectSchema = [RLMObjectSchema schemaForObjectClass:[PrimaryStringObject class]];
         RLMProperty *stringProperty = objectSchema[@"stringCol"];
-        RLMProperty *expectedProperty = [[RLMProperty alloc] initWithName:@"stringCol" type:RLMPropertyTypeString objectClassName:nil linkOriginPropertyName:nil indexed:YES optional:YES];
+        RLMProperty *expectedProperty = [[RLMProperty alloc] initWithName:@"stringCol"
+                                                                     type:RLMPropertyTypeString
+                                                          objectClassName:nil
+                                                   linkOriginPropertyName:nil
+                                                                  indexed:YES
+                                                                 optional:NO];
         expectedProperty.isPrimary = YES;
         XCTAssertEqualObjects(stringProperty, expectedProperty);
     }
@@ -115,6 +120,43 @@
     RLMProperty *property2 = [[RLMProperty alloc] initWithName:@(name) indexed:YES linkPropertyDescriptor:nil property:objcProperty2];
 
     XCTAssertNotEqualObjects(property1, property2);
+}
+
+- (void)testSwiftPropertyNameValidation {
+    RLMAssertThrows(RLMValidateSwiftPropertyName(@"alloc"));
+    RLMAssertThrows(RLMValidateSwiftPropertyName(@"_alloc"));
+    RLMAssertThrows(RLMValidateSwiftPropertyName(@"allocOject"));
+    RLMAssertThrows(RLMValidateSwiftPropertyName(@"_allocOject"));
+    RLMAssertThrows(RLMValidateSwiftPropertyName(@"alloc_object"));
+    RLMAssertThrows(RLMValidateSwiftPropertyName(@"_alloc_object"));
+    RLMAssertThrows(RLMValidateSwiftPropertyName(@"new"));
+    RLMAssertThrows(RLMValidateSwiftPropertyName(@"copy"));
+    RLMAssertThrows(RLMValidateSwiftPropertyName(@"mutableCopy"));
+
+    // Swift doesn't infer family from `init`
+    XCTAssertNoThrow(RLMValidateSwiftPropertyName(@"init"));
+    XCTAssertNoThrow(RLMValidateSwiftPropertyName(@"_init"));
+    XCTAssertNoThrow(RLMValidateSwiftPropertyName(@"initWithValue"));
+
+    // Lowercase letter after family name
+    XCTAssertNoThrow(RLMValidateSwiftPropertyName(@"allocate"));
+
+    XCTAssertNoThrow(RLMValidateSwiftPropertyName(@"__alloc"));
+}
+
+- (void)testTypeToString {
+    XCTAssertEqualObjects(RLMTypeToString(RLMPropertyTypeString),   @"string");
+    XCTAssertEqualObjects(RLMTypeToString(RLMPropertyTypeInt),      @"int");
+    XCTAssertEqualObjects(RLMTypeToString(RLMPropertyTypeBool),     @"bool");
+    XCTAssertEqualObjects(RLMTypeToString(RLMPropertyTypeDate),     @"date");
+    XCTAssertEqualObjects(RLMTypeToString(RLMPropertyTypeData),     @"data");
+    XCTAssertEqualObjects(RLMTypeToString(RLMPropertyTypeDouble),   @"double");
+    XCTAssertEqualObjects(RLMTypeToString(RLMPropertyTypeFloat),    @"float");
+    XCTAssertEqualObjects(RLMTypeToString(RLMPropertyTypeObject),   @"object");
+    XCTAssertEqualObjects(RLMTypeToString(RLMPropertyTypeArray),    @"array");
+    XCTAssertEqualObjects(RLMTypeToString(RLMPropertyTypeLinkingObjects), @"linking objects");
+
+    XCTAssertEqualObjects(RLMTypeToString((RLMPropertyType)-1),     @"Unknown");
 }
 
 @end

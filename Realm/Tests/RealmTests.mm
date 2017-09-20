@@ -22,6 +22,7 @@
 #import "RLMRealmConfiguration_Private.hpp"
 #import "RLMRealm_Dynamic.h"
 #import "RLMSchema_Private.h"
+#import "RLMRealmUtil.hpp"
 
 #import <mach/mach_init.h>
 #import <mach/vm_map.h>
@@ -32,7 +33,6 @@
 
 @interface RLMRealm ()
 + (BOOL)isCoreDebug;
-- (BOOL)compact;
 @end
 
 @interface RLMObjectSchema (Private)
@@ -177,14 +177,14 @@
     @autoreleasepool {
         XCTAssertNoThrow([self realmWithTestPath]);
     }
-    
+
     // Make Realm at test path temporarily unreadable
     NSError *error;
     NSNumber *permissions = [NSFileManager.defaultManager attributesOfItemAtPath:RLMTestRealmURL().path error:&error][NSFilePosixPermissions];
     assert(!error);
     [NSFileManager.defaultManager setAttributes:@{NSFilePosixPermissions: @(0000)} ofItemAtPath:RLMTestRealmURL().path error:&error];
     assert(!error);
-    
+
     RLMAssertThrowsWithCodeMatching([self realmWithTestPath], RLMErrorFilePermissionDenied);
 
     [NSFileManager.defaultManager setAttributes:@{NSFilePosixPermissions: permissions} ofItemAtPath:RLMTestRealmURL().path error:&error];
@@ -203,6 +203,26 @@
     else \
         XCTAssertEqualObjects(oldData, newData); \
 } while (0)
+
+- (void)testFileFormatUpgradeRequiredDeleteRealmIfNeeded {
+    RLMRealmConfiguration *config = [RLMRealmConfiguration defaultConfiguration];
+    config.deleteRealmIfMigrationNeeded = YES;
+
+    NSURL *bundledRealmURL = [[NSBundle bundleForClass:[RealmTests class]] URLForResource:@"fileformat-pre-null" withExtension:@"realm"];
+    [NSFileManager.defaultManager copyItemAtURL:bundledRealmURL toURL:config.fileURL error:nil];
+
+    @autoreleasepool {
+        XCTAssertTrue([[RLMRealm realmWithConfiguration:config error:nil] isEmpty]);
+    }
+
+    bundledRealmURL = [[NSBundle bundleForClass:[RealmTests class]] URLForResource:@"fileformat-old-date" withExtension:@"realm"];
+    [NSFileManager.defaultManager removeItemAtURL:config.fileURL error:nil];
+    [NSFileManager.defaultManager copyItemAtURL:bundledRealmURL toURL:config.fileURL error:nil];
+
+    @autoreleasepool {
+        XCTAssertTrue([[RLMRealm realmWithConfiguration:config error:nil] isEmpty]);
+    }
+}
 
 - (void)testFileFormatUpgradeRequiredButDisabled {
     RLMRealmConfiguration *config = [RLMRealmConfiguration defaultConfiguration];
@@ -296,6 +316,61 @@
     }
 }
 #endif
+
+- (void)testOpenAsync {
+    // Locals
+    RLMRealmConfiguration *c = [RLMRealmConfiguration defaultConfiguration];
+    XCTestExpectation *ex = [self expectationWithDescription:@"open-async"];
+
+    // Helpers
+    auto assertNoCachedRealm = ^{ XCTAssertNil(RLMGetAnyCachedRealmForPath(c.pathOnDisk.UTF8String)); };
+    auto fileExists = ^BOOL() {
+        return [[NSFileManager defaultManager] fileExistsAtPath:c.pathOnDisk isDirectory:nil];
+    };
+
+    // Unsuccessful open
+    c.readOnly = true;
+    [RLMRealm asyncOpenWithConfiguration:c
+                           callbackQueue:dispatch_get_main_queue()
+                                callback:^(RLMRealm * _Nullable realm, NSError * _Nullable error) {
+        XCTAssertEqual(error.code, RLMErrorFileNotFound);
+        XCTAssertNil(realm);
+        [ex fulfill];
+    }];
+    XCTAssertFalse(fileExists());
+    assertNoCachedRealm();
+    [self waitForExpectationsWithTimeout:1 handler:nil];
+    XCTAssertFalse(fileExists());
+    assertNoCachedRealm();
+
+    // Successful open
+    c.readOnly = false;
+    ex = [self expectationWithDescription:@"open-async"];
+
+    // Hold exclusive lock on lock file to prevent Realm from being created
+    // if the dispatch_async happens too quickly
+    NSString *lockFilePath = [c.pathOnDisk stringByAppendingString:@".lock"];
+    [[NSFileManager defaultManager] createFileAtPath:lockFilePath contents:[NSData data] attributes:nil];
+    int fd = open(lockFilePath.UTF8String, O_RDWR);
+    XCTAssertNotEqual(-1, fd);
+    int ret = flock(fd, LOCK_SH);
+    XCTAssertEqual(0, ret);
+
+    [RLMRealm asyncOpenWithConfiguration:c
+                           callbackQueue:dispatch_get_main_queue()
+                                callback:^(RLMRealm * _Nullable realm, NSError * _Nullable error) {
+        XCTAssertNil(error);
+        XCTAssertNotNil(realm);
+        [ex fulfill];
+    }];
+    XCTAssertFalse(fileExists());
+    flock(fd, LOCK_UN);
+    close(fd);
+    assertNoCachedRealm();
+    [self waitForExpectationsWithTimeout:1 handler:nil];
+    XCTAssertTrue(fileExists());
+    assertNoCachedRealm();
+}
 
 #pragma mark - Adding and Removing Objects
 
@@ -837,6 +912,122 @@
     [token stop];
 }
 
+- (void)testBeginWriteTransactionFromWithinRefreshRequiredNotification {
+    RLMRealm *realm = [RLMRealm defaultRealm];
+    realm.autorefresh = NO;
+
+    auto expectation = [self expectationWithDescription:@""];
+    RLMNotificationToken *token = [realm addNotificationBlock:^(NSString *note, RLMRealm *realm) {
+        XCTAssertEqual(RLMRealmRefreshRequiredNotification, note);
+        XCTAssertEqual(0U, [StringObject allObjectsInRealm:realm].count);
+        [realm beginWriteTransaction];
+        XCTAssertEqual(1U, [StringObject allObjectsInRealm:realm].count);
+        [realm cancelWriteTransaction];
+        [expectation fulfill]; // note that this will throw if the notification is incorrectly called twice
+    }];
+
+    [self dispatchAsyncAndWait:^{
+        RLMRealm *realm = [RLMRealm defaultRealm];
+        [realm beginWriteTransaction];
+        [StringObject createInRealm:realm withValue:@[@"string"]];
+        [realm commitWriteTransaction];
+    }];
+
+    [self waitForExpectationsWithTimeout:2.0 handler:nil];
+    [token stop];
+}
+
+- (void)testBeginWriteTransactionFromWithinRealmChangedNotification {
+    RLMRealm *realm = [RLMRealm defaultRealm];
+
+    auto createObject = ^{
+        [self dispatchAsyncAndWait:^{
+            RLMRealm *realm = [RLMRealm defaultRealm];
+            [realm beginWriteTransaction];
+            [StringObject createInRealm:realm withValue:@[@"string"]];
+            [realm commitWriteTransaction];
+        }];
+    };
+
+    // Test with the triggering transaction on a different thread
+    auto expectation = [self expectationWithDescription:@""];
+    RLMNotificationToken *token = [realm addNotificationBlock:^(NSString *note, RLMRealm *realm) {
+        XCTAssertEqual(RLMRealmDidChangeNotification, note);
+
+        // We're in DidChange, so the first object is already present
+        XCTAssertEqual(1U, [StringObject allObjectsInRealm:realm].count);
+        createObject();
+
+        // Haven't refreshed yet, so still one
+        XCTAssertEqual(1U, [StringObject allObjectsInRealm:realm].count);
+
+        // Refreshes without sending notifications since we're within a notification
+        [realm beginWriteTransaction];
+        XCTAssertEqual(2U, [StringObject allObjectsInRealm:realm].count);
+        [realm cancelWriteTransaction];
+        [expectation fulfill]; // note that this will throw if the notification is incorrectly called twice
+    }];
+
+    createObject();
+
+    [self waitForExpectationsWithTimeout:2.0 handler:nil];
+    [token stop];
+
+    // Test with the triggering transaction on the same thread
+    __block bool first = true;
+    token = [realm addNotificationBlock:^(NSString *note, RLMRealm *realm) {
+        XCTAssertTrue(first);
+        XCTAssertEqual(RLMRealmDidChangeNotification, note);
+        XCTAssertEqual(3U, [StringObject allObjectsInRealm:realm].count);
+        first = false;
+
+        [realm beginWriteTransaction]; // should not trigger a notification
+        [StringObject createInRealm:realm withValue:@[@"string"]];
+        [realm commitWriteTransaction]; // also should not trigger a notification
+    }];
+
+    [realm beginWriteTransaction];
+    [StringObject createInRealm:realm withValue:@[@"string"]];
+    [realm commitWriteTransaction];
+}
+
+- (void)testBeginWriteTransactionFromWithinCollectionChangedNotification {
+    RLMRealm *realm = [RLMRealm defaultRealm];
+
+    auto createObject = ^{
+        [self dispatchAsyncAndWait:^{
+            RLMRealm *realm = [RLMRealm defaultRealm];
+            [realm beginWriteTransaction];
+            [StringObject createInRealm:realm withValue:@[@"string"]];
+            [realm commitWriteTransaction];
+        }];
+    };
+
+    __block auto expectation = [self expectationWithDescription:@""];
+    __block RLMNotificationToken *token;
+    auto block = ^(RLMResults *results, RLMCollectionChange *changes, NSError *) {
+        if (!changes) {
+            [expectation fulfill];
+            return;
+        }
+
+        XCTAssertEqual(1U, results.count);
+        createObject();
+        XCTAssertEqual(1U, results.count);
+        [realm beginWriteTransaction];
+        XCTAssertEqual(2U, results.count);
+        [realm cancelWriteTransaction];
+        [expectation fulfill];
+        [token stop];
+    };
+    token = [StringObject.allObjects addNotificationBlock:block];
+    [self waitForExpectationsWithTimeout:2.0 handler:nil];
+
+    createObject();
+    expectation = [self expectationWithDescription:@""];
+    [self waitForExpectationsWithTimeout:2.0 handler:nil];
+}
+
 - (void)testReadOnlyRealmIsImmutable
 {
     @autoreleasepool { [self realmWithTestPath]; }
@@ -1133,7 +1324,7 @@
     [token stop];
 }
 
-- (void)testThrowingFromDidChangeNotificationCancelsTransaction {
+- (void)testThrowingFromDidChangeNotificationFromBeginWriteCancelsTransaction {
     RLMRealm *realm = RLMRealm.defaultRealm;
     realm.autorefresh = NO;
 
@@ -1149,6 +1340,29 @@
 
     try {
         [realm beginWriteTransaction];
+        XCTFail(@"should have thrown");
+    }
+    catch (int) { }
+    [token stop];
+
+    XCTAssertFalse(realm.inWriteTransaction);
+    XCTAssertNoThrow([realm beginWriteTransaction]);
+    [realm cancelWriteTransaction];
+}
+
+- (void)testThrowingFromDidChangeNotificationAfterLocalCommit {
+    RLMRealm *realm = RLMRealm.defaultRealm;
+    realm.autorefresh = NO;
+
+    RLMNotificationToken *token = [realm addNotificationBlock:^(NSString *note, RLMRealm *) {
+        if (note == RLMRealmDidChangeNotification) {
+            throw 0;
+        }
+    }];
+
+    [realm beginWriteTransaction];
+    try {
+        [realm commitWriteTransaction];
         XCTFail(@"should have thrown");
     }
     catch (int) { }
@@ -1325,13 +1539,14 @@
 
     RLMRealm *realm = [self readOnlyRealmWithURL:RLMTestRealmURL() error:nil];
     XCTAssertEqual(1U, [StringObject allObjectsInRealm:realm].count);
+    XCTAssertNil([PrimaryIntObject objectInRealm:realm forPrimaryKey:@0]);
 
     // verify that reading a missing table gives an empty array rather than
     // crashing
     RLMResults *results = [IntObject allObjectsInRealm:realm];
     XCTAssertEqual(0U, results.count);
     XCTAssertEqual(results, [results objectsWhere:@"intCol = 5"]);
-    XCTAssertEqual(results, [results sortedResultsUsingProperty:@"intCol" ascending:YES]);
+    XCTAssertEqual(results, [results sortedResultsUsingKeyPath:@"intCol" ascending:YES]);
     XCTAssertThrows([results objectAtIndex:0]);
     XCTAssertEqual(NSNotFound, [results indexOfObject:self.nonLiteralNil]);
     XCTAssertEqual(NSNotFound, [results indexOfObjectWhere:@"intCol = 5"]);
@@ -1339,7 +1554,7 @@
     XCTAssertNil([results maxOfProperty:@"intCol"]);
     XCTAssertNil([results minOfProperty:@"intCol"]);
     XCTAssertNil([results averageOfProperty:@"intCol"]);
-    XCTAssertNil([results sumOfProperty:@"intCol"]);
+    XCTAssertEqualObjects(@0, [results sumOfProperty:@"intCol"]);
     XCTAssertNil([results firstObject]);
     XCTAssertNil([results lastObject]);
     for (__unused id obj in results) {
@@ -1632,36 +1847,6 @@
     }
 }
 
-- (void)testCompact
-{
-    RLMRealm *realm = self.realmWithTestPath;
-    NSString *uuid = [[NSUUID UUID] UUIDString];
-    NSUInteger count = 1000;
-    [realm transactionWithBlock:^{
-        [StringObject createInRealm:realm withValue:@[@"A"]];
-        for (NSUInteger i = 0; i < count; ++i) {
-            [StringObject createInRealm:realm withValue:@[uuid]];
-        }
-        [StringObject createInRealm:realm withValue:@[@"B"]];
-    }];
-    auto fileSize = ^(NSString *path) {
-        NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil];
-        return [(NSNumber *)attributes[NSFileSize] unsignedLongLongValue];
-    };
-    unsigned long long fileSizeBefore = fileSize(realm.configuration.fileURL.path);
-    StringObject *object = [StringObject allObjectsInRealm:realm].firstObject;
-
-    XCTAssertTrue([realm compact]);
-
-    XCTAssertTrue(object.isInvalidated);
-    XCTAssertEqual([[StringObject allObjectsInRealm:realm] count], count + 2);
-    XCTAssertEqualObjects(@"A", [[StringObject allObjectsInRealm:realm].firstObject stringCol]);
-    XCTAssertEqualObjects(@"B", [[StringObject allObjectsInRealm:realm].lastObject stringCol]);
-
-    unsigned long long fileSizeAfter = fileSize(realm.configuration.fileURL.path);
-    XCTAssertGreaterThan(fileSizeBefore, fileSizeAfter);
-}
-
 - (NSArray *)pathsFor100Realms
 {
     NSMutableArray *paths = [NSMutableArray array];
@@ -1686,8 +1871,55 @@
     [self waitForExpectationsWithTimeout:1 handler:nil];
 }
 
-- (void)runBlock:(void (^)())block {
-    block();
+- (void)testAuxiliaryFilesAreExcludedFromBackup {
+    @autoreleasepool { [RLMRealm defaultRealm]; }
+
+#if TARGET_OS_TV
+    NSArray *auxiliaryFileExtensions = @[@"management", @"lock"]; // tvOS does not support named pipes
+#else
+    NSArray *auxiliaryFileExtensions = @[@"management", @"lock", @"note"];
+#endif
+    NSURL *fileURL = RLMRealmConfiguration.defaultConfiguration.fileURL;
+    for (NSString *pathExtension in auxiliaryFileExtensions) {
+        NSNumber *attribute = nil;
+        NSError *error = nil;
+        BOOL success = [[fileURL URLByAppendingPathExtension:pathExtension] getResourceValue:&attribute forKey:NSURLIsExcludedFromBackupKey error:&error];
+        XCTAssertTrue(success);
+        XCTAssertNil(error);
+        XCTAssertTrue(attribute.boolValue);
+    }
+}
+
+- (void)testAuxiliaryFilesAreExcludedFromBackupPerformance {
+    [self measureBlock:^{
+        @autoreleasepool {
+            RLMRealm *realm = [RLMRealm defaultRealm];
+            realm = [RLMRealm defaultRealm];
+            realm = [RLMRealm defaultRealm];
+            realm = [RLMRealm defaultRealm];
+            realm = [RLMRealm defaultRealm];
+            realm = [RLMRealm defaultRealm];
+            realm = [RLMRealm defaultRealm];
+            realm = [RLMRealm defaultRealm];
+            realm = [RLMRealm defaultRealm];
+            realm = [RLMRealm defaultRealm];
+            realm = [RLMRealm defaultRealm];
+            realm = [RLMRealm defaultRealm];
+            realm = [RLMRealm defaultRealm];
+            realm = [RLMRealm defaultRealm];
+        }
+        @autoreleasepool { [RLMRealm defaultRealm]; }
+    }];
+
+//    NSURL *fileURL = RLMRealmConfiguration.defaultConfiguration.fileURL;
+//    for (NSString *pathExtension in @[@"management", @"lock", @"note"]) {
+//        NSNumber *attribute = nil;
+//        NSError *error = nil;
+//        BOOL success = [[fileURL URLByAppendingPathExtension:pathExtension] getResourceValue:&attribute forKey:NSURLIsExcludedFromBackupKey error:&error];
+//        XCTAssertTrue(success);
+//        XCTAssertNil(error);
+//        XCTAssertTrue(attribute.boolValue);
+//    }
 }
 
 @end

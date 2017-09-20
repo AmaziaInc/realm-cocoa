@@ -57,6 +57,20 @@
     exception; \
 })
 
+#define RLMAssertThrowsWithReason(expression, expected, ...) \
+({ \
+    NSException *exception = RLMAssertThrows(expression); \
+    if (exception) { \
+        if ([exception.reason rangeOfString:(expected)].location == NSNotFound) { \
+            _XCTRegisterFailure(self, \
+                                [_XCTFailureDescription(_XCTAssertion_True, 0, @#expression " (EXPR_STRING) contains " #expected) \
+                                 stringByReplacingOccurrencesOfString:@"EXPR_STRING" \
+                                                           withString:exception.reason ?: @"<nil>"]); \
+        } \
+    } \
+    exception; \
+})
+
 #define RLMAssertThrowsWithCodeMatching(expression, expectedCode, ...) \
 ({ \
     NSException *exception = RLMAssertThrows(expression, __VA_ARGS__); \
@@ -76,12 +90,12 @@
     if (macro_dsc.length) {                                                                              \
         NSString *macro_dscActual = [macro_castErr.userInfo[NSLocalizedDescriptionKey] lowercaseString]; \
         XCTAssertNotNil(macro_dscActual);                                                                \
-        XCTAssert([macro_dscActual containsString:macro_dsc], @"Did not find the expected string '%@' in the description string '%@'", macro_dsc, macro_dscActual); \
+        XCTAssert([macro_dscActual rangeOfString:macro_dsc].location != NSNotFound, @"Did not find the expected string '%@' in the description string '%@'", macro_dsc, macro_dscActual); \
     }                                                                                                    \
     if (macro_usl.length) {                                                                              \
         NSString *macro_uslActual = [macro_castErr.userInfo[@"Underlying"] lowercaseString];             \
         XCTAssertNotNil(macro_uslActual);                                                                \
-        XCTAssert([macro_uslActual containsString:macro_usl], @"Did not find the expected string '%@' in the underlying info string '%@'", macro_usl, macro_uslActual); \
+        XCTAssert([macro_uslActual rangeOfString:macro_usl].location != NSNotFound, @"Did not find the expected string '%@' in the underlying info string '%@'", macro_usl, macro_uslActual); \
     }                                                                                                    \
 })
 
